@@ -1,6 +1,6 @@
 Name:		gssproxy
 Version:	0.7.0
-Release:	17%{?dist}
+Release:	21%{?dist}
 Summary:	GSSAPI Proxy
 
 Group:		System Environment/Libraries
@@ -31,7 +31,6 @@ Patch13: Update-systemd-file.patch
 Patch14: Fix-error-handling-in-gp_config_from_dir.patch
 Patch15: Fix-silent-crash-with-duplicate-config-sections.patch
 Patch16: Do-not-call-gpm_grab_sock-twice.patch
-Patch17: Fix-error-message-handling-in-gp_config_from_dir.patch
 Patch18: Only-empty-FILE-ccaches-when-storing-remote-creds.patch
 Patch19: Handle-outdated-encrypted-ccaches.patch
 Patch20: Separate-cred-and-ccache-manipulation-in-gpp_store_r.patch
@@ -49,11 +48,15 @@ Patch31: Fix-handling-of-non-EPOLLIN-EPOLLOUT-events.patch
 Patch32: Fix-error-handling-in-gpm_send_buffer-gpm_recv_buffe.patch
 Patch33: Emit-debug-on-queue-errors.patch
 Patch34: Conditionally-reload-kernel-interface-on-SIGHUP.patch
+Patch35: Don-t-leak-mech_type-when-CONTINUE_NEEDED-from-init_.patch
+Patch36: Always-use-the-encype-we-selected.patch
+Patch37: Clarify-debug-and-debug_level-in-man-pages.patch
+Patch38: Always-choose-highest-requested-debug-level.patch
 
 ### Dependencies ###
 
-# From rhbz#1458913 and friends
-Requires: libini_config >= 1.3.1-28
+# From rhbz#1458913 and rhbz#1507607 (and friends)
+Requires: libini_config >= 1.3.1-31
 
 Requires: krb5-libs >= 1.15
 Requires: keyutils-libs
@@ -112,7 +115,6 @@ A proxy for GSSAPI credential handling
 %patch14 -p2 -b .Fix-error-handling-in-gp_config_from_dir
 %patch15 -p2 -b .Fix-silent-crash-with-duplicate-config-sections
 %patch16 -p2 -b .Do-not-call-gpm_grab_sock-twice
-%patch17 -p2 -b .Fix-error-message-handling-in-gp_config_from_dir
 %patch18 -p2 -b .Only-empty-FILE-ccaches-when-storing-remote-creds
 %patch19 -p2 -b .Handle-outdated-encrypted-ccaches
 %patch20 -p2 -b .Separate-cred-and-ccache-manipulation-in-gpp_store_r
@@ -130,6 +132,10 @@ A proxy for GSSAPI credential handling
 %patch32 -p2 -b .Fix-error-handling-in-gpm_send_buffer-gpm_recv_buffe
 %patch33 -p2 -b .Emit-debug-on-queue-errors
 %patch34 -p2 -b .Conditionally-reload-kernel-interface-on-SIGHUP
+%patch35 -p2 -b .Don-t-leak-mech_type-when-CONTINUE_NEEDED-from-init_
+%patch36 -p2 -b .Always-use-the-encype-we-selected
+%patch37 -p2 -b .Clarify-debug-and-debug_level-in-man-pages
+%patch38 -p2 -b .Always-choose-highest-requested-debug-level
 
 %build
 autoreconf -f -i
@@ -190,6 +196,22 @@ rm -rf -- "%{buildroot}"
 
 
 %changelog
+* Fri Jun 08 2018 Robbie Harwood <rharwood@redhat.com> 0.7.0-21
+- Always choose highest requested debug level
+- Resolves: #1505741
+
+* Fri Apr 27 2018 Robbie Harwood <rharwood@redhat.com> 0.7.0-20
+- Clean up debug man page + behavior
+- Resolves: #1554249
+
+* Fri Apr 27 2018 Robbie Harwood <rharwood@redhat.com> 0.7.0-19
+- Always use the encype we selected
+- Resolves: #1549684
+
+* Fri Apr 27 2018 Robbie Harwood <rharwood@redhat.com> 0.7.0-18
+- Don't leak mech_type when CONTINUE_NEEDED from init_sec_context
+- Resolves: #1553819
+
 * Wed Dec 13 2017 Robbie Harwood <rharwood@redhat.com> 0.7.0-17
 - Conditionally reload kernel interface on SIGHUP
 - Resolves: #1507817

@@ -1,4 +1,4 @@
-From 044f2224ca5c86b51b2f2ce2878ede9e236e41d3 Mon Sep 17 00:00:00 2001
+From 24d776205605f3c113fdc2cb356d4c28b8033676 Mon Sep 17 00:00:00 2001
 From: Robbie Harwood <rharwood@redhat.com>
 Date: Fri, 15 Sep 2017 18:07:28 -0400
 Subject: [PATCH] Handle outdated encrypted ccaches
@@ -13,7 +13,7 @@ Merges: #214
 (cherry picked from commit 657d3c8339309dd8e2bfa4ee10f005e0f0c055e8)
 ---
  proxy/src/gp_export.c                 | 11 ++++++-----
- proxy/src/gp_rpc_accept_sec_context.c | 28 ++++++++++++++++++++++++++++
+ proxy/src/gp_rpc_accept_sec_context.c | 28 +++++++++++++++++++++++++++
  proxy/src/gp_rpc_init_sec_context.c   |  2 +-
  3 files changed, 35 insertions(+), 6 deletions(-)
 

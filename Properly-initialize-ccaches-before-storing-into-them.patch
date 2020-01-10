@@ -1,4 +1,4 @@
-From 7a343088a7b716532b1b5c32965fa9ef02c1987a Mon Sep 17 00:00:00 2001
+From 2d91093925c8546d68f9314546353226b4f41569 Mon Sep 17 00:00:00 2001
 From: Robbie Harwood <rharwood@redhat.com>
 Date: Tue, 5 Dec 2017 13:14:29 -0500
 Subject: [PATCH] Properly initialize ccaches before storing into them

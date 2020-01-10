@@ -14,10 +14,10 @@ Reviewed-by: Robbie Harwood <rharwood@redhat.com>
 Merges: #172
 (cherry picked from commit eada55e831d12b42d3be3a555ff4e133bed7f594)
 ---
- proxy/src/gp_creds.c                | 57 ++++++++++++++++++++++++++++++++-----
+ proxy/src/gp_creds.c                | 57 +++++++++++++++++++++++++----
  proxy/src/gp_rpc_creds.h            |  3 +-
  proxy/src/gp_rpc_init_sec_context.c |  2 +-
- proxy/tests/t_impersonate.py        | 35 ++++++++++++++++-------
+ proxy/tests/t_impersonate.py        | 35 +++++++++++++-----
  4 files changed, 78 insertions(+), 19 deletions(-)
 
 diff --git a/proxy/src/gp_creds.c b/proxy/src/gp_creds.c

@@ -1,4 +1,4 @@
-From a45cb6a67530fe2224e2aaeb73808f9e1e99bfa9 Mon Sep 17 00:00:00 2001
+From f413cc257c6c1e60090c72163152ae7fd2180c41 Mon Sep 17 00:00:00 2001
 From: Alexander Scheel <ascheel@redhat.com>
 Date: Fri, 4 Aug 2017 16:09:20 -0400
 Subject: [PATCH] [server] Add detailed request logging

@@ -1,4 +1,4 @@
-From 7b7de309a059ab1f770f9a1192be9299ab0e38f2 Mon Sep 17 00:00:00 2001
+From 8a7fc8e280e31fd8c277adc4f74cc26c341a71b4 Mon Sep 17 00:00:00 2001
 From: Robbie Harwood <rharwood@redhat.com>
 Date: Tue, 12 Sep 2017 12:40:27 -0400
 Subject: [PATCH] Prevent uninitialized read in error path of XDR contexts

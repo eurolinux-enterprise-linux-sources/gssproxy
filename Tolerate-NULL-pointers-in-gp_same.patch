@@ -1,4 +1,4 @@
-From ea57f8351e8f1ec2ed4a628b5c235498e65fba0f Mon Sep 17 00:00:00 2001
+From 05a2677920f0240ea302e67d699546665687dd14 Mon Sep 17 00:00:00 2001
 From: Robbie Harwood <rharwood@redhat.com>
 Date: Tue, 13 Jun 2017 14:22:44 -0400
 Subject: [PATCH] Tolerate NULL pointers in gp_same

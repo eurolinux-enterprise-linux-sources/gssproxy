@@ -1,4 +1,4 @@
-From 70d500d0dcc26ff3a87c1dd4bd6ab0c591ed4cf9 Mon Sep 17 00:00:00 2001
+From 8a5ba5feb98ecc3c57ee865604799fc4e4a90c61 Mon Sep 17 00:00:00 2001
 From: Alexander Scheel <ascheel@redhat.com>
 Date: Mon, 26 Jun 2017 17:04:16 -0400
 Subject: [PATCH] Conditionally reload kernel interface on SIGHUP

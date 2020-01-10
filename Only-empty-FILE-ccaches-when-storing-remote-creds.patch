@@ -1,4 +1,4 @@
-From f2d1472f1557ceee70f2eaacf790c0222a36c4a1 Mon Sep 17 00:00:00 2001
+From 1fa33903be640f8d22757d21da294e70f0812698 Mon Sep 17 00:00:00 2001
 From: Robbie Harwood <rharwood@redhat.com>
 Date: Tue, 10 Oct 2017 18:00:45 -0400
 Subject: [PATCH] Only empty FILE ccaches when storing remote creds

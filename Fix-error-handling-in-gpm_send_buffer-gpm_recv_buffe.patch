@@ -1,4 +1,4 @@
-From accc0e772b126d251ca853a080b25466ebc528a3 Mon Sep 17 00:00:00 2001
+From 027596a3df85d11948f4fb3a28d27d6523645589 Mon Sep 17 00:00:00 2001
 From: Alexander Scheel <alexander.m.scheel@gmail.com>
 Date: Thu, 14 Sep 2017 11:24:39 -0500
 Subject: [PATCH] Fix error handling in gpm_send_buffer/gpm_recv_buffer

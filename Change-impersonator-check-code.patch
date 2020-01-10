@@ -12,8 +12,8 @@ Reviewed-by: Robbie Harwood <rharwood@redhat.com>
 Merges: #172
 (cherry picked from commit 73b50c0b2799f0aed53337a6516b8e1a27279ebf)
 ---
- proxy/configure.ac   |   3 ++
- proxy/src/gp_creds.c | 147 ++++++++++++++++++++++++++++++++++++++-------------
+ proxy/configure.ac   |   3 +
+ proxy/src/gp_creds.c | 147 ++++++++++++++++++++++++++++++++-----------
  2 files changed, 112 insertions(+), 38 deletions(-)
 
 diff --git a/proxy/configure.ac b/proxy/configure.ac

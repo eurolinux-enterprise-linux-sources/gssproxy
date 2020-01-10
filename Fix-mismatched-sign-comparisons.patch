@@ -11,21 +11,21 @@ Reviewed-by: Simo Sorce <simo@redhat.com>
 Merges: #173
 (cherry picked from commit 377e92c7ead312c530b233a1e023493ecde033d6)
 ---
- proxy/src/client/gpm_acquire_cred.c          | 11 +++-------
- proxy/src/client/gpm_common.c                |  4 ++--
- proxy/src/client/gpm_import_and_canon_name.c |  7 +++---
- proxy/src/client/gpm_indicate_mechs.c        | 33 ++++++++++++----------------
- proxy/src/gp_common.h                        |  3 +--
- proxy/src/gp_config.c                        |  9 +++-----
- proxy/src/gp_conv.c                          |  6 ++---
- proxy/src/gp_creds.c                         |  3 +--
- proxy/src/gp_export.c                        |  9 +++-----
- proxy/src/gp_rpc_acquire_cred.c              |  5 ++---
- proxy/src/gp_rpc_debug.c                     | 26 +++++++++++-----------
- proxy/src/gp_rpc_indicate_mechs.c            | 15 +++++--------
- proxy/src/gp_socket.c                        |  4 ++--
- proxy/src/gp_util.c                          |  4 ++--
- proxy/tests/t_utils.c                        |  4 ++--
+ proxy/src/client/gpm_acquire_cred.c          | 11 ++-----
+ proxy/src/client/gpm_common.c                |  4 +--
+ proxy/src/client/gpm_import_and_canon_name.c |  7 ++---
+ proxy/src/client/gpm_indicate_mechs.c        | 33 +++++++++-----------
+ proxy/src/gp_common.h                        |  3 +-
+ proxy/src/gp_config.c                        |  9 ++----
+ proxy/src/gp_conv.c                          |  6 ++--
+ proxy/src/gp_creds.c                         |  3 +-
+ proxy/src/gp_export.c                        |  9 ++----
+ proxy/src/gp_rpc_acquire_cred.c              |  5 ++-
+ proxy/src/gp_rpc_debug.c                     | 26 +++++++--------
+ proxy/src/gp_rpc_indicate_mechs.c            | 15 +++------
+ proxy/src/gp_socket.c                        |  4 +--
+ proxy/src/gp_util.c                          |  4 +--
+ proxy/tests/t_utils.c                        |  4 +--
  15 files changed, 58 insertions(+), 85 deletions(-)
 
 diff --git a/proxy/src/client/gpm_acquire_cred.c b/proxy/src/client/gpm_acquire_cred.c

@@ -14,8 +14,8 @@ Related: #176
  proxy/src/gp_config.c            |  1 +
  proxy/src/gp_creds.c             |  2 ++
  proxy/src/gp_export.c            |  3 ++-
- proxy/src/gp_rpc_acquire_cred.c  | 17 ++++++++++------
- proxy/src/gssproxy.c             | 42 ++++++++++++++++++++++++++++------------
+ proxy/src/gp_rpc_acquire_cred.c  | 17 ++++++++-----
+ proxy/src/gssproxy.c             | 42 +++++++++++++++++++++++---------
  proxy/src/mechglue/gpp_context.c |  2 ++
  proxy/tests/t_acquire.c          |  3 +++
  7 files changed, 51 insertions(+), 19 deletions(-)

@@ -1,4 +1,4 @@
-From 3d08f71f576a381955f07a91198f5dcb320026ba Mon Sep 17 00:00:00 2001
+From 1962e6128a4d86a7c54977577e1e4224cadbb5f7 Mon Sep 17 00:00:00 2001
 From: Alexander Scheel <ascheel@redhat.com>
 Date: Wed, 2 Aug 2017 15:11:49 -0400
 Subject: [PATCH] [client] Switch to non-blocking sockets
@@ -15,7 +15,7 @@ Reviewed-by: Simo Sorce <simo@redhat.com>
 Reviewed-by: Robbie Harwood <rharwood@redhat.com>
 (cherry picked from commit d035646c8feb0b78f0c157580ca02c46cd00dd7e)
 ---
- proxy/src/client/gpm_common.c | 317 +++++++++++++++++++++++++++++++++++++++---
+ proxy/src/client/gpm_common.c | 317 +++++++++++++++++++++++++++++++---
  1 file changed, 295 insertions(+), 22 deletions(-)
 
 diff --git a/proxy/src/client/gpm_common.c b/proxy/src/client/gpm_common.c

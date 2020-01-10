@@ -9,8 +9,8 @@ Resolves: #194
 Merges: #202
 (cherry picked from commit c0d85387fc38f9554d601ec2ddb111031a694387)
 ---
- proxy/configure.ac    | 125 ++++++++++++++++++++++++++++++++++++++++++++++++++
- proxy/src/gp_config.c |  27 +++++------
+ proxy/configure.ac    | 125 ++++++++++++++++++++++++++++++++++++++++++
+ proxy/src/gp_config.c |  27 ++++-----
  2 files changed, 137 insertions(+), 15 deletions(-)
 
 diff --git a/proxy/configure.ac b/proxy/configure.ac

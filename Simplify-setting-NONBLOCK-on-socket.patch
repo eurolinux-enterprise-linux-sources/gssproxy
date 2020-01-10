@@ -1,4 +1,4 @@
-From 4a857676879caa636ccbb3fb5c4601fff8afdee0 Mon Sep 17 00:00:00 2001
+From 6d12deeb19cc2e231463427db27f8755649450d1 Mon Sep 17 00:00:00 2001
 From: Alexander Scheel <alexander.m.scheel@gmail.com>
 Date: Thu, 14 Sep 2017 10:57:12 -0500
 Subject: [PATCH] Simplify setting NONBLOCK on socket

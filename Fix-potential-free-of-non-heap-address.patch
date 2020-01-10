@@ -1,4 +1,4 @@
-From 9c35e3e40f63e3bc98c258810abd422e5149d0ee Mon Sep 17 00:00:00 2001
+From e087470af1a51b58fbac434ff2e30bc3f2a1f9ac Mon Sep 17 00:00:00 2001
 From: Robbie Harwood <rharwood@redhat.com>
 Date: Mon, 11 Sep 2017 10:52:03 -0400
 Subject: [PATCH] Fix potential free of non-heap address

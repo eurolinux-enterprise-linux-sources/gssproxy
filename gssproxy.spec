@@ -1,12 +1,13 @@
 Name:		gssproxy
 Version:	0.7.0
-Release:	21%{?dist}
+Release:	26%{?dist}
 Summary:	GSSAPI Proxy
 
 Group:		System Environment/Libraries
 License:	MIT
 URL:		https://pagure.io/gssproxy
 Source0:	https://releases.pagure.org/gssproxy/gssproxy-%{version}.tar.gz
+Source1:	rwtab
 BuildRoot:	%(mktemp -ud %{_tmppath}/%{name}-%{version}-%{release}-XXXXXX)
 
 %global servicename gssproxy
@@ -52,6 +53,14 @@ Patch35: Don-t-leak-mech_type-when-CONTINUE_NEEDED-from-init_.patch
 Patch36: Always-use-the-encype-we-selected.patch
 Patch37: Clarify-debug-and-debug_level-in-man-pages.patch
 Patch38: Always-choose-highest-requested-debug-level.patch
+Patch39: Use-pthread-keys-for-thread-local-storage.patch
+Patch40: Close-epoll-fd-within-the-lock.patch
+Patch41: Add-a-safety-timeout-to-epoll.patch
+Patch42: Always-initialize-out-cred-in-gp_import_gssx_cred.patch
+Patch43: Handle-gss_import_cred-failure-when-importing-gssx-c.patch
+Patch44: Include-length-when-using-krb5_c_decrypt.patch
+Patch45: Change-the-way-we-handle-encrypted-buffers.patch
+Patch46: Avoid-uninitialized-free-when-allocating-buffers.patch
 
 ### Dependencies ###
 
@@ -136,6 +145,14 @@ A proxy for GSSAPI credential handling
 %patch36 -p2 -b .Always-use-the-encype-we-selected
 %patch37 -p2 -b .Clarify-debug-and-debug_level-in-man-pages
 %patch38 -p2 -b .Always-choose-highest-requested-debug-level
+%patch39 -p2 -b .Use-pthread-keys-for-thread-local-storage
+%patch40 -p2 -b .Close-epoll-fd-within-the-lock
+%patch41 -p2 -b .Add-a-safety-timeout-to-epoll
+%patch42 -p2 -b .Always-initialize-out-cred-in-gp_import_gssx_cred
+%patch43 -p2 -b .Handle-gss_import_cred-failure-when-importing-gssx-c
+%patch44 -p2 -b .Include-length-when-using-krb5_c_decrypt
+%patch45 -p2 -b .Change-the-way-we-handle-encrypted-buffers
+%patch46 -p2 -b .Avoid-uninitialized-free-when-allocating-buffers
 
 %build
 autoreconf -f -i
@@ -160,6 +177,8 @@ install -m644 examples/99-nfs-client.conf %{buildroot}%{_sysconfdir}/gssproxy/99
 mkdir -p %{buildroot}%{_sysconfdir}/gss/mech.d
 install -m644 examples/mech %{buildroot}%{_sysconfdir}/gss/mech.d/gssproxy.conf
 mkdir -p %{buildroot}/var/lib/gssproxy/rcache
+mkdir -p $RPM_BUILD_ROOT/%{_sysconfdir}/rwtab.d
+install -m644 %{SOURCE1} $RPM_BUILD_ROOT/%{_sysconfdir}/rwtab.d/gssproxy
 
 %clean
 rm -rf -- "%{buildroot}"
@@ -181,7 +200,7 @@ rm -rf -- "%{buildroot}"
 %{_mandir}/man5/gssproxy.conf.5*
 %{_mandir}/man8/gssproxy.8*
 %{_mandir}/man8/gssproxy-mech.8*
-
+%config(noreplace) %{_sysconfdir}/rwtab.d/gssproxy
 
 %post
 %systemd_post gssproxy.service
@@ -196,6 +215,26 @@ rm -rf -- "%{buildroot}"
 
 
 %changelog
+* Wed May 01 2019 Robbie Harwood <rharwood@redhat.com> 0.7.0-26
+- Avoid uninitialized free when allocating buffers
+- Resolves: #1699331
+
+* Tue Apr 30 2019 Robbie Harwood <rharwood@redhat.com> 0.7.0-25
+- Fix explicit NULL deref on some enctypes
+- Resolves: #1699331
+
+* Mon Mar 18 2019 Robbie Harwood <rharwood@redhat.com> 0.7.0-24
+- Add a safety timeout to epoll
+- Resolves: #1687899
+
+* Mon Dec 17 2018 Robbie Harwood <rharwood@redhat.com> 0.7.0-23
+- Use pthread keys for thread local storage
+- Resolves: #1618375
+
+* Tue Dec 11 2018 Robbie Harwood <rharwood@redhat.com> 0.7.0-22
+- Add hack to support read-only root
+- Resolves: #1542567
+
 * Fri Jun 08 2018 Robbie Harwood <rharwood@redhat.com> 0.7.0-21
 - Always choose highest requested debug level
 - Resolves: #1505741

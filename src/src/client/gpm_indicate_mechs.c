@@ -1,27 +1,4 @@
-/*
-   GSS-PROXY
-
-   Copyright (C) 2011 Red Hat, Inc.
-   Copyright (C) 2011 Simo Sorce <simo.sorce@redhat.com>
-
-   Permission is hereby granted, free of charge, to any person obtaining a
-   copy of this software and associated documentation files (the "Software"),
-   to deal in the Software without restriction, including without limitation
-   the rights to use, copy, modify, merge, publish, distribute, sublicense,
-   and/or sell copies of the Software, and to permit persons to whom the
-   Software is furnished to do so, subject to the following conditions:
-
-   The above copyright notice and this permission notice shall be included in
-   all copies or substantial portions of the Software.
-
-   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
-   THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-   DEALINGS IN THE SOFTWARE.
-*/
+/* Copyright (C) 2011 the GSS-PROXY contributors, see COPYING for license */
 
 #include "gssapi_gpm.h"
 #include <pthread.h>
@@ -467,10 +444,6 @@ OM_uint32 gpm_inquire_attrs_for_mech(OM_uint32 *minor_status,
     if (!minor_status) {
         return GSS_S_CALL_INACCESSIBLE_WRITE;
     }
-    if (!mech_attrs || !known_mech_attrs) {
-        *minor_status = 0;
-        return GSS_S_CALL_INACCESSIBLE_WRITE;
-    }
 
     ret_min = gpmint_init_global_mechs();
     if (ret_min) {
@@ -482,21 +455,31 @@ OM_uint32 gpm_inquire_attrs_for_mech(OM_uint32 *minor_status,
         if (!gpm_equal_oids(global_mechs.info[i].mech, mech)) {
             continue;
         }
-        ret_maj = gpm_copy_gss_OID_set(&ret_min,
-                                       global_mechs.info[i].mech_attrs,
-                                       mech_attrs);
-        if (ret_maj) {
+
+        if (mech_attrs != NULL) {
+            ret_maj = gpm_copy_gss_OID_set(&ret_min,
+                                           global_mechs.info[i].mech_attrs,
+                                           mech_attrs);
+            if (ret_maj) {
+                *minor_status = ret_min;
+                return ret_maj;
+            }
+        }
+
+        if (known_mech_attrs != NULL) {
+            ret_maj = gpm_copy_gss_OID_set(&ret_min,
+                                           global_mechs.info[i].known_mech_attrs,
+                                           known_mech_attrs);
+            if (ret_maj) {
+                gss_release_oid_set(&discard, known_mech_attrs);
+            }
             *minor_status = ret_min;
             return ret_maj;
         }
-        ret_maj = gpm_copy_gss_OID_set(&ret_min,
-                                       global_mechs.info[i].known_mech_attrs,
-                                       known_mech_attrs);
-        if (ret_maj) {
-            gss_release_oid_set(&discard, known_mech_attrs);
-        }
-        *minor_status = ret_min;
-        return ret_maj;
+
+        /* all requested attributes copied successfully */
+        *minor_status = 0;
+        return GSS_S_COMPLETE;
     }
 
     *minor_status = 0;

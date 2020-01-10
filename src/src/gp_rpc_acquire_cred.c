@@ -1,27 +1,4 @@
-/*
-   GSS-PROXY
-
-   Copyright (C) 2011 Red Hat, Inc.
-   Copyright (C) 2011 Simo Sorce <simo.sorce@redhat.com>
-
-   Permission is hereby granted, free of charge, to any person obtaining a
-   copy of this software and associated documentation files (the "Software"),
-   to deal in the Software without restriction, including without limitation
-   the rights to use, copy, modify, merge, publish, distribute, sublicense,
-   and/or sell copies of the Software, and to permit persons to whom the
-   Software is furnished to do so, subject to the following conditions:
-
-   The above copyright notice and this permission notice shall be included in
-   all copies or substantial portions of the Software.
-
-   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
-   THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-   DEALINGS IN THE SOFTWARE.
-*/
+/* Copyright (C) 2011 the GSS-PROXY contributors, see COPYING for license */
 
 #include "gp_rpc_process.h"
 #include <gssapi/gssapi_krb5.h>
@@ -41,16 +18,26 @@ int gp_acquire_cred(struct gp_call_ctx *gpcall,
     gss_cred_usage_t cred_usage;
     gss_cred_id_t out_cred = GSS_C_NO_CREDENTIAL;
     gss_cred_id_t *add_out_cred = NULL;
+    int acquire_type = ACQ_NORMAL;
     int ret;
     int i;
 
     aca = &arg->acquire_cred;
     acr = &res->acquire_cred;
 
+    GPRPCDEBUG(gssx_arg_acquire_cred, aca);
+
     if (aca->input_cred_handle) {
         ret_maj = gp_import_gssx_cred(&ret_min, gpcall,
                                       aca->input_cred_handle, &in_cred);
         if (ret_maj) {
+            goto done;
+        }
+
+        acquire_type = gp_get_acquire_type(aca);
+        if (acquire_type == -1) {
+            ret_maj = GSS_S_FAILURE;
+            ret_min = EINVAL;
             goto done;
         }
     }
@@ -114,6 +101,7 @@ int gp_acquire_cred(struct gp_call_ctx *gpcall,
         if (gss_oid_equal(desired_mech, gss_mech_krb5)) {
             ret_maj = gp_add_krb5_creds(&ret_min,
                                         gpcall,
+                                        acquire_type,
                                         in_cred,
                                         aca->desired_name,
                                         cred_usage,
@@ -149,16 +137,24 @@ int gp_acquire_cred(struct gp_call_ctx *gpcall,
         ret_min = ENOMEM;
         goto done;
     }
-    ret_maj = gp_export_gssx_cred(&ret_min, gpcall,
-                                  &out_cred, acr->output_cred_handle);
-    if (ret_maj) {
-        goto done;
+
+    if (out_cred == in_cred) {
+        acr->output_cred_handle = aca->input_cred_handle;
+        aca->input_cred_handle = NULL;
+    } else {
+        ret_maj = gp_export_gssx_cred(&ret_min, gpcall,
+                                      &out_cred, acr->output_cred_handle);
+        if (ret_maj) {
+            goto done;
+        }
     }
 
 done:
     ret = gp_conv_status_to_gssx(&aca->call_ctx,
                                  ret_maj, ret_min, desired_mech,
                                  &acr->status);
+
+    GPRPCDEBUG(gssx_res_acquire_cred, acr);
 
     gss_release_cred(&ret_min, &out_cred);
     gss_release_oid_set(&ret_min, &use_mechs);

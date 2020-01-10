@@ -1,27 +1,4 @@
-/*
-   GSS-PROXY
-
-   Copyright (C) 2011 Red Hat, Inc.
-   Copyright (C) 2011 Simo Sorce <simo.sorce@redhat.com>
-
-   Permission is hereby granted, free of charge, to any person obtaining a
-   copy of this software and associated documentation files (the "Software"),
-   to deal in the Software without restriction, including without limitation
-   the rights to use, copy, modify, merge, publish, distribute, sublicense,
-   and/or sell copies of the Software, and to permit persons to whom the
-   Software is furnished to do so, subject to the following conditions:
-
-   The above copyright notice and this permission notice shall be included in
-   all copies or substantial portions of the Software.
-
-   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
-   THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-   DEALINGS IN THE SOFTWARE.
-*/
+/* Copyright (C) 2011 the GSS-PROXY contributors, see COPYING for license */
 
 #include "gp_rpc_process.h"
 
@@ -53,6 +30,8 @@ int gp_accept_sec_context(struct gp_call_ctx *gpcall,
     asca = &arg->accept_sec_context;
     ascr = &res->accept_sec_context;
 
+    GPRPCDEBUG(gssx_arg_accept_sec_context, asca);
+
     exp_ctx_type = gp_get_exported_context_type(&asca->call_ctx);
     if (exp_ctx_type == -1) {
         ret_maj = GSS_S_FAILURE;
@@ -77,7 +56,7 @@ int gp_accept_sec_context(struct gp_call_ctx *gpcall,
 
     if (ach == GSS_C_NO_CREDENTIAL) {
         ret_maj = gp_add_krb5_creds(&ret_min, gpcall,
-                                    NULL, NULL,
+                                    ACQ_NORMAL, NULL, NULL,
                                     GSS_C_ACCEPT,
                                     0, 0,
                                     &ach,
@@ -176,10 +155,12 @@ done:
     ret = gp_conv_status_to_gssx(&asca->call_ctx,
                                  ret_maj, ret_min, oid,
                                  &ascr->status);
+    GPRPCDEBUG(gssx_res_accept_sec_context, ascr);
 
     gss_release_name(&ret_min, &src_name);
     gss_release_buffer(&ret_min, &obuf);
     gss_release_cred(&ret_min, &dch);
+    gss_release_cred(&ret_min, &ach);
     gss_delete_sec_context(&ret_min, &ctx, GSS_C_NO_BUFFER);
 
     return ret;

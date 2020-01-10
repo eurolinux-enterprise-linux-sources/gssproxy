@@ -1,27 +1,4 @@
-/*
-   GSS-PROXY
-
-   Copyright (C) 2013 Red Hat, Inc.
-   Copyright (C) 2013 Simo Sorce <simo.sorce@redhat.com>
-
-   Permission is hereby granted, free of charge, to any person obtaining a
-   copy of this software and associated documentation files (the "Software"),
-   to deal in the Software without restriction, including without limitation
-   the rights to use, copy, modify, merge, publish, distribute, sublicense,
-   and/or sell copies of the Software, and to permit persons to whom the
-   Software is furnished to do so, subject to the following conditions:
-
-   The above copyright notice and this permission notice shall be included in
-   all copies or substantial portions of the Software.
-
-   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
-   THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-   DEALINGS IN THE SOFTWARE.
-*/
+/* Copyright (C) 2013 the GSS-PROXY contributors, see COPYING for license */
 
 #include "config.h"
 #include <stdbool.h>
@@ -165,4 +142,49 @@ ssize_t gp_safe_write(int fd, const void *buf, size_t count)
     } while (count > len);
 
     return len;
+}
+
+uint32_t gp_add_option(gssx_option **options_val, u_int *options_len,
+                       const void *option, size_t option_len,
+                       const void *value, size_t value_len)
+{
+    gssx_option opt = { 0 };
+    gssx_option *out;
+    uint32_t ret;
+
+    opt.option.octet_string_val = malloc(option_len);
+    if (!opt.option.octet_string_val) {
+        ret = ENOMEM;
+        goto done;
+    }
+    memcpy(opt.option.octet_string_val, option, option_len);
+    opt.option.octet_string_len = option_len;
+
+    if (value_len != 0) {
+        opt.value.octet_string_val = malloc(value_len);
+        if (!opt.value.octet_string_val) {
+            ret = ENOMEM;
+            goto done;
+        }
+        memcpy(opt.value.octet_string_val, value, value_len);
+        opt.value.octet_string_len = value_len;
+    }
+
+    out = realloc(*options_val, (*options_len + 1) * sizeof(gssx_option));
+    if (!out) {
+        ret = ENOMEM;
+        goto done;
+    }
+
+    out[*options_len] = opt;
+    *options_val = out;
+    (*options_len)++;
+
+    ret = 0;
+
+done:
+    if (ret) {
+        xdr_free((xdrproc_t)xdr_gssx_option, (char *)&opt);
+    }
+    return ret;
 }

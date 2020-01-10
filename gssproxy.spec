@@ -1,12 +1,12 @@
 Name:		gssproxy
-Version:	0.4.1
-Release:	13%{?dist}
+Version:	0.7.0
+Release:	17%{?dist}
 Summary:	GSSAPI Proxy
 
 Group:		System Environment/Libraries
 License:	MIT
-URL:		http://fedorahosted.org/gss-proxy
-Source0:	http://fedorahosted.org/released/gss-proxy/%{name}-%{version}.tar.gz
+URL:		https://pagure.io/gssproxy
+Source0:	https://releases.pagure.org/gssproxy/gssproxy-%{version}.tar.gz
 BuildRoot:	%(mktemp -ud %{_tmppath}/%{name}-%{version}-%{release}-XXXXXX)
 
 %global servicename gssproxy
@@ -14,23 +14,56 @@ BuildRoot:	%(mktemp -ud %{_tmppath}/%{name}-%{version}-%{release}-XXXXXX)
 %global gpstatedir %{_localstatedir}/lib/gssproxy
 
 ### Patches ###
-Patch1: gssproxy_ticket_140_0001-bug-140-Remove-fno-strict-aliasing.patch
-Patch3: gssproxy_ticket_145_130-Set-default-rcache.patch
-Patch4: gssproxy_ticket_143_workaround_Service-HTTP.patch
-Patch5: 0001-Correct-handling-of-EINTR-on-read-write.patch
-Patch6: krb5-1.14-inquire_context_no_name.patch
-Patch7: krb5-1.14-inquire_attrs_accept_null.patch
-Patch8: gssproxy-0.5.1-socket_permission_checking.patch
-Patch9: gssproxy_ticket_155-krb5_principal.patch
+Patch0: Properly-renew-expired-credentials.patch
+Patch1: Change-impersonator-check-code.patch
+Patch2: Allow-connection-to-self-when-impersonator-set.patch
+Patch3: Make-proc-file-failure-loud-but-nonfatal.patch
+Patch4: Turn-on-Wextra.patch
+Patch5: Fix-unused-variables.patch
+Patch6: Fix-mismatched-sign-comparisons.patch
+Patch7: Fix-error-checking-on-get_impersonator_fallback.patch
+Patch8: Remove-gpm_release_ctx-to-fix-double-unlock.patch
+Patch9: Appease-gcc-7-s-fallthrough-detection.patch
+Patch10: Fix-memory-leak.patch
+Patch11: Fix-most-memory-leaks.patch
+Patch12: Fix-segfault-when-no-config-files-are-present.patch
+Patch13: Update-systemd-file.patch
+Patch14: Fix-error-handling-in-gp_config_from_dir.patch
+Patch15: Fix-silent-crash-with-duplicate-config-sections.patch
+Patch16: Do-not-call-gpm_grab_sock-twice.patch
+Patch17: Fix-error-message-handling-in-gp_config_from_dir.patch
+Patch18: Only-empty-FILE-ccaches-when-storing-remote-creds.patch
+Patch19: Handle-outdated-encrypted-ccaches.patch
+Patch20: Separate-cred-and-ccache-manipulation-in-gpp_store_r.patch
+Patch21: Properly-locate-credentials-in-collection-caches-in-.patch
+Patch22: Properly-initialize-ccaches-before-storing-into-them.patch
+Patch23: Include-header-for-writev.patch
+Patch24: Tolerate-NULL-pointers-in-gp_same.patch
+Patch25: Add-Client-ID-to-debug-messages.patch
+Patch26: client-Switch-to-non-blocking-sockets.patch
+Patch27: server-Add-detailed-request-logging.patch
+Patch28: Fix-potential-free-of-non-heap-address.patch
+Patch29: Prevent-uninitialized-read-in-error-path-of-XDR-cont.patch
+Patch30: Simplify-setting-NONBLOCK-on-socket.patch
+Patch31: Fix-handling-of-non-EPOLLIN-EPOLLOUT-events.patch
+Patch32: Fix-error-handling-in-gpm_send_buffer-gpm_recv_buffe.patch
+Patch33: Emit-debug-on-queue-errors.patch
+Patch34: Conditionally-reload-kernel-interface-on-SIGHUP.patch
 
 ### Dependencies ###
 
-Requires: krb5-libs >= 1.12.0
+# From rhbz#1458913 and friends
+Requires: libini_config >= 1.3.1-28
+
+Requires: krb5-libs >= 1.15
 Requires: keyutils-libs
-Requires: libverto-tevent
+Requires: libverto-module-base
 Requires(post): systemd-units
 Requires(preun): systemd-units
 Requires(postun): systemd-units
+
+# Currently from rhbz#1458850 and friends
+Conflicts: selinux-policy < 3.13.1-166.el7.noarch
 
 ### Build Dependencies ###
 
@@ -42,8 +75,8 @@ BuildRequires: doxygen
 BuildRequires: findutils
 BuildRequires: gettext-devel
 BuildRequires: keyutils-libs-devel
-BuildRequires: krb5-devel >= 1.12.0
-BuildRequires: libini_config-devel >= 1.0.0.1
+BuildRequires: krb5-devel >= 1.15
+BuildRequires: libini_config-devel >= 1.3.1-28
 BuildRequires: libselinux-devel
 BuildRequires: libtool
 BuildRequires: libverto-devel
@@ -62,15 +95,41 @@ A proxy for GSSAPI credential handling
 
 %prep
 %setup -q
-
-%patch1 -p2 -b .gssproxy_ticket_140_0001-bug-140-remove-fno-strict-aliasing
-%patch3 -p2 -b .gssproxy_ticket_145_130-set-default-rcache
-%patch4 -p2 -b .gssproxy_ticket_143_workaround_service-http
-%patch5 -p2 -b .gssproxy_EINTR_loop_fix
-%patch6 -p2 -b .inquire_context_no_name
-%patch7 -p2 -b .inquire_attrs_accept_null
-%patch8 -p2 -b .socket_permission_checking
-%patch9 -p2 -b .gssproxy_ticket_155-krb5_principal.patch
+%patch0 -p2 -b .Properly-renew-expired-credentials
+%patch1 -p2 -b .Change-impersonator-check-code
+%patch2 -p2 -b .Allow-connection-to-self-when-impersonator-set
+%patch3 -p2 -b .Make-proc-file-failure-loud-but-nonfatal
+%patch4 -p2 -b .Turn-on-Wextra
+%patch5 -p2 -b .Fix-unused-variables
+%patch6 -p2 -b .Fix-mismatched-sign-comparisons
+%patch7 -p2 -b .Fix-error-checking-on-get_impersonator_fallback
+%patch8 -p2 -b .Remove-gpm_release_ctx-to-fix-double-unlock
+%patch9 -p2 -b .Appease-gcc-7-s-fallthrough-detection
+%patch10 -p2 -b .Fix-memory-leak
+%patch11 -p2 -b .Fix-most-memory-leaks
+%patch12 -p2 -b .Fix-segfault-when-no-config-files-are-present
+%patch13 -p2 -b .Update-systemd-file
+%patch14 -p2 -b .Fix-error-handling-in-gp_config_from_dir
+%patch15 -p2 -b .Fix-silent-crash-with-duplicate-config-sections
+%patch16 -p2 -b .Do-not-call-gpm_grab_sock-twice
+%patch17 -p2 -b .Fix-error-message-handling-in-gp_config_from_dir
+%patch18 -p2 -b .Only-empty-FILE-ccaches-when-storing-remote-creds
+%patch19 -p2 -b .Handle-outdated-encrypted-ccaches
+%patch20 -p2 -b .Separate-cred-and-ccache-manipulation-in-gpp_store_r
+%patch21 -p2 -b .Properly-locate-credentials-in-collection-caches-in-
+%patch22 -p2 -b .Properly-initialize-ccaches-before-storing-into-them
+%patch23 -p2 -b .Include-header-for-writev
+%patch24 -p2 -b .Tolerate-NULL-pointers-in-gp_same
+%patch25 -p2 -b .Add-Client-ID-to-debug-messages
+%patch26 -p2 -b .client-Switch-to-non-blocking-sockets
+%patch27 -p2 -b .server-Add-detailed-request-logging
+%patch28 -p2 -b .Fix-potential-free-of-non-heap-address
+%patch29 -p2 -b .Prevent-uninitialized-read-in-error-path-of-XDR-cont
+%patch30 -p2 -b .Simplify-setting-NONBLOCK-on-socket
+%patch31 -p2 -b .Fix-handling-of-non-EPOLLIN-EPOLLOUT-events
+%patch32 -p2 -b .Fix-error-handling-in-gpm_send_buffer-gpm_recv_buffe
+%patch33 -p2 -b .Emit-debug-on-queue-errors
+%patch34 -p2 -b .Conditionally-reload-kernel-interface-on-SIGHUP
 
 %build
 autoreconf -f -i
@@ -91,6 +150,7 @@ make install DESTDIR=%{buildroot}
 rm -f -- %{buildroot}%{_libdir}/gssproxy/proxymech.la
 install -d -m755 %{buildroot}%{_sysconfdir}/gssproxy
 install -m644 examples/gssproxy.conf %{buildroot}%{_sysconfdir}/gssproxy/gssproxy.conf
+install -m644 examples/99-nfs-client.conf %{buildroot}%{_sysconfdir}/gssproxy/99-nfs-client.conf
 mkdir -p %{buildroot}%{_sysconfdir}/gss/mech.d
 install -m644 examples/mech %{buildroot}%{_sysconfdir}/gss/mech.d/gssproxy.conf
 mkdir -p %{buildroot}/var/lib/gssproxy/rcache
@@ -108,6 +168,7 @@ rm -rf -- "%{buildroot}"
 %attr(755,root,root) %dir %{gpstatedir}
 %attr(700,root,root) %dir %{gpstatedir}/clients
 %attr(0600,root,root) %config(noreplace) /%{_sysconfdir}/gssproxy/gssproxy.conf
+%attr(0600,root,root) %config(noreplace) /%{_sysconfdir}/gssproxy/99-nfs-client.conf
 %attr(0644,root,root) %config(noreplace) /%{_sysconfdir}/gss/mech.d/gssproxy.conf
 %attr(700,root,root) %dir /var/lib/gssproxy/rcache
 %{_libdir}/gssproxy/proxymech.so
@@ -129,6 +190,99 @@ rm -rf -- "%{buildroot}"
 
 
 %changelog
+* Wed Dec 13 2017 Robbie Harwood <rharwood@redhat.com> 0.7.0-17
+- Conditionally reload kernel interface on SIGHUP
+- Resolves: #1507817
+
+* Tue Dec 12 2017 Robbie Harwood <rharwood@redhat.com> 0.7.0-16
+- Backport epoll() logic
+- Resolves: #1507817
+
+* Wed Dec 06 2017 Robbie Harwood <rharwood@redhat.com> 0.7.0-15
+- Properly initialize ccaches before storing into them
+- Resolves: #1488629
+
+* Fri Dec 01 2017 Robbie Harwood <rharwood@redhat.com> 0.7.0-14
+- Properly locate credentials in collection caches in mechglue
+- Resolves: #1488629
+
+* Tue Oct 31 2017 Robbie Harwood <rharwood@redhat.com> 0.7.0-13
+- Handle outdated encrypted ccaches
+- Resolves: #1488629
+
+* Tue Oct 31 2017 Robbie Harwood <rharwood@redhat.com> 0.7.0-12
+- Handle outdated encrypted ccaches
+- Resolves: #1488629
+
+* Mon Oct 30 2017 Robbie Harwood <rharwood@redhat.com> 0.7.0-11
+- Fix error message handling in gp_config_from_dir()
+- Resolves: #1458913
+
+* Fri Oct 27 2017 Robbie Harwood <rharwood@redhat.com> 0.7.0-10
+- Fix concurrency issue around server socket handling
+- Resolves: #1462974
+
+* Tue Oct 17 2017 Robbie Harwood <rharwood@redhat.com> 0.7.0-9
+- Log useful warning and merge when config file has duplicate sections
+- Resolves: #1458913
+
+* Mon Oct 02 2017 Robbie Harwood <rharwood@redhat.com> 0.7.0-8
+- Add Conflicts: line for old selinux-policy
+- Resolves: #1458850
+
+* Thu Sep 21 2017 Robbie Harwood <rharwood@redhat.com> 0.7.0-7
+- Backport NFS-related gssproxy.service changes
+- Resolves: #1326440
+
+* Mon Sep 11 2017 Robbie Harwood <rharwood@redhat.com> 0.7.0-6
+- Fix segfault when no config files are present
+- Resolves: #1451255
+
+* Thu Aug 17 2017 Robbie Harwood <rharwood@redhat.com> 0.7.0-5
+- Backport hardening improvements
+- Resolves: #1462974
+
+* Wed May 31 2017 Robbie Harwood <rharwood@redhat.com> 0.7.0-4
+- Make proc file failure loud but nonfatal
+- Resolves: #1449238
+
+* Tue Mar 28 2017 Robbie Harwood <rharwood@redhat.com> 0.7.0-3
+- Stop shipping NFS server snippet (nfs-utils takes it instead)
+- Resolves: #1379836
+
+* Tue Mar 14 2017 Robbie Harwood <rharwood@redhat.com> 0.7.0-2
+- Fix credential handling with mod_auth_gssapi that we broke
+- Resolves: #1379836
+
+* Fri Mar 10 2017 Robbie Harwood <rharwood@redhat.com> 0.7.0-1
+- New upstream version - 0.7.0
+- Resolves: #1379836
+
+* Tue Feb 28 2017 Robbie Harwood <rharwood@redhat.com> 0.6.2-4
+- Include fixes for NULL-termination
+- Resolves: #1379836
+
+* Thu Feb 23 2017 Robbie Harwood <rharwod@redhat.com> 0.6.2-3
+- Document debug_level option
+- Resolves: #1379836
+
+* Tue Feb 21 2017 Robbie Harwood <rharwood@redhat.com> 0.6.2-2
+- Enable running the test suite
+- Resolves: #1379836
+
+* Thu Feb 16 2017 Robbie Harwood <rharwood@redhat.com> 0.6.2-1
+- Rebase to latest version since we have krb5-1.15
+- Resolves: #1379836
+- Resolves: #1344518
+- Resolves: #1366782
+- Resolves: #1379005
+- Resolves: #1379482
+- Resolves: #1379616
+- Resolves: #1380490
+- Resolves: #1378600
+- Resolves: #1285012
+- Resolves: #1333813
+
 * Tue Sep 06 2016 Robbie Harwood <rharwood@redhat.com> 0.4.1-13
 - Third try is the charm
 - Resolves: #1092515

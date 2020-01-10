@@ -1,38 +1,18 @@
-/*
-   GSS-PROXY
-
-   Copyright (C) 2011 Red Hat, Inc.
-   Copyright (C) 2011 Simo Sorce <simo.sorce@redhat.com>
-
-   Permission is hereby granted, free of charge, to any person obtaining a
-   copy of this software and associated documentation files (the "Software"),
-   to deal in the Software without restriction, including without limitation
-   the rights to use, copy, modify, merge, publish, distribute, sublicense,
-   and/or sell copies of the Software, and to permit persons to whom the
-   Software is furnished to do so, subject to the following conditions:
-
-   The above copyright notice and this permission notice shall be included in
-   all copies or substantial portions of the Software.
-
-   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
-   THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-   DEALINGS IN THE SOFTWARE.
-*/
+/* Copyright (C) 2011 the GSS-PROXY contributors, see COPYING for license */
 
 #include "config.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <pwd.h>
 #include "gp_proxy.h"
 #include "gp_config.h"
 #include "gp_selinux.h"
 
 #include <gssapi/gssapi.h>
+
+#include <ini_configobj.h>
 
 struct gp_flag_def {
     const char *name;
@@ -75,17 +55,51 @@ static void free_str_array(const char ***a, int *count)
     safefree(*a);
 }
 
+void free_cred_store_elements(gss_key_value_set_desc *cs)
+{
+    int i;
+
+    if (!cs->elements) return;
+
+    for (i = 0; i < cs->count; i++) {
+        safefree(cs->elements[i].key);
+        safefree(cs->elements[i].value);
+    }
+    safefree(cs->elements);
+    cs->count = 0;
+}
+
 static void gp_service_free(struct gp_service *svc)
 {
     free(svc->name);
     if (svc->mechs & GP_CRED_KRB5) {
         free(svc->krb5.principal);
-        free_str_array(&(svc->krb5.cred_store),
-                       &svc->krb5.cred_count);
+        free_cred_store_elements(&svc->krb5.store);
+        gp_free_creds_handle(&svc->krb5.creds_handle);
     }
-    gp_free_creds_handle(&svc->creds_handle);
     SELINUX_context_free(svc->selinux_ctx);
     memset(svc, 0, sizeof(struct gp_service));
+}
+
+static int setup_krb5_creds_handle(struct gp_service *svc)
+{
+    uint32_t ret_maj, ret_min;
+    const char *keytab = NULL;
+
+    for (unsigned i = 0; i < svc->krb5.store.count; i++) {
+        if (strcmp(svc->krb5.store.elements[i].key, "keytab") == 0) {
+            keytab = svc->krb5.store.elements[i].value;
+            break;
+        }
+    }
+
+    ret_maj = gp_init_creds_handle(&ret_min, svc->name, keytab,
+                                   &svc->krb5.creds_handle);
+    if (ret_maj) {
+        return ret_min;
+    }
+
+    return 0;
 }
 
 static int get_krb5_mech_cfg(struct gp_service *svc,
@@ -98,6 +112,8 @@ static int get_krb5_mech_cfg(struct gp_service *svc,
         {"krb5_client_keytab", "client_keytab" }
     };
     const char *value;
+    const char **strings = NULL;
+    int count = 0;
     int i;
     int ret;
 
@@ -126,15 +142,53 @@ static int get_krb5_mech_cfg(struct gp_service *svc,
     }
 
     /* instead look for the cred_store parameter */
-    ret = gp_config_get_string_array(ctx, secname,
-                                     "cred_store",
-                                     &svc->krb5.cred_count,
-                                     &svc->krb5.cred_store);
-    if (ret == ENOENT) {
+    ret = gp_config_get_string_array(ctx, secname, "cred_store",
+                                     &count, &strings);
+    if (ret == 0) {
+        const char *p;
+        size_t len;
+        char *key;
+
+        svc->krb5.store.elements =
+            calloc(count, sizeof(gss_key_value_element_desc));
+        if (!svc->krb5.store.elements) {
+            ret = ENOMEM;
+            goto done;
+        }
+        svc->krb5.store.count = count;
+
+        for (int c = 0; c < count; c++) {
+            p = strchr(strings[c], ':');
+            if (!p) {
+                GPERROR("Invalid cred_store value, no ':' separator found in"
+                        " [%s].\n", strings[c]);
+                ret = EINVAL;
+                goto done;
+            }
+            len = asprintf(&key, "%.*s", (int)(p - strings[c]), strings[c]);
+            if (len == -1) {
+                ret = ENOMEM;
+                goto done;
+            }
+            svc->krb5.store.elements[c].key = key;
+            svc->krb5.store.elements[c].value = strdup(p + 1);
+            if (!svc->krb5.store.elements[c].value) {
+                ret = ENOMEM;
+                goto done;
+            }
+        }
+
+    } else if (ret == ENOENT) {
         /* when not there we ignore */
         ret = 0;
     }
 
+    if (ret == 0) {
+        ret = setup_krb5_creds_handle(svc);
+    }
+
+done:
+    free_str_array(&strings, &count);
     return ret;
 }
 
@@ -191,16 +245,46 @@ static int parse_flags(const char *value, uint32_t *storage)
     return 0;
 }
 
-static int setup_service_creds_handle(struct gp_service *svc)
+static int check_services(const struct gp_config *cfg)
 {
-    uint32_t ret_maj, ret_min;
+    int i, j;
+    struct gp_service *isvc, *jsvc;
+    const char *isock, *jsock;
+    int ret = 0;
 
-    ret_maj = gp_init_creds_handle(&ret_min, &svc->creds_handle);
-    if (ret_maj) {
-        return ret_min;
+    /* [gssproxy] section does not get placed in svcs */
+    for (i = 0; i < cfg->num_svcs; i++) {
+        isvc = cfg->svcs[i];
+        isock = isvc->socket;
+        if (!isock) {
+            isock = GP_SOCKET_NAME;
+        }
+
+        for (j = 0; j < i; j++) {
+            jsvc = cfg->svcs[j];
+            jsock = jsvc->socket;
+            if (!jsock) {
+                jsock = GP_SOCKET_NAME;
+            }
+
+            if (!gp_same(isock, jsock) ||
+                !gp_selinux_ctx_equal(isvc->selinux_ctx, jsvc->selinux_ctx)) {
+                continue;
+            }
+
+            if (jsvc->any_uid) {
+                ret = 1;
+                GPERROR("%s sets allow_any_uid with the same socket and "
+                        "selinux_context as %s!\n", jsvc->name, isvc->name);
+            } else if (jsvc->euid == isvc->euid) {
+                ret = 1;
+                GPERROR("socket, selinux_context, and euid for %s and %s "
+                        "should not match!\n", isvc->name, jsvc->name);
+            }
+        }
     }
 
-    return 0;
+    return ret;
 }
 
 static int load_services(struct gp_config *cfg, struct gp_ini_context *ctx)
@@ -247,18 +331,36 @@ static int load_services(struct gp_config *cfg, struct gp_ini_context *ctx)
                 goto done;
             }
 
+            /* euid can be a string or an int */
             ret = gp_config_get_int(ctx, secname, "euid", &valnum);
             if (ret != 0) {
-                /* if euid is missing or there is an error retrieving it
-                 * return an error and end. This is a fatal condition. */
-                if (ret == ENOENT) {
-                    GPERROR("Option 'euid' is missing from [%s].\n", secname);
-                    ret = EINVAL;
+                ret = gp_config_get_string(ctx, secname, "euid", &value);
+                if (ret == 0) {
+                    struct passwd *eu_passwd; /* static; do not free */
+
+                    errno = 0; /* needs to be 0; otherwise it won't be set */
+                    eu_passwd = getpwnam(value);
+                    if (!eu_passwd) {
+                        ret = errno;
+                        if (ret == 0) { /* not that it gets set anyway... */
+                            ret = ENOENT;
+                        }
+                    } else {
+                        valnum = eu_passwd->pw_uid;
+                    }
                 }
-                gp_service_free(cfg->svcs[n]);
-                cfg->num_svcs--;
-                safefree(secname);
-                goto done;
+                if (ret != 0) {
+                    /* if euid is missing or there is an error retrieving it
+                     * return an error and end. This is a fatal condition. */
+                    if (ret == ENOENT) {
+                        GPERROR("Option 'euid' is missing from [%s].\n", secname);
+                        ret = EINVAL;
+                    }
+                    gp_service_free(cfg->svcs[n]);
+                    cfg->num_svcs--;
+                    safefree(secname);
+                    goto done;
+                }
             }
             cfg->svcs[n]->euid = valnum;
 
@@ -266,6 +368,30 @@ static int load_services(struct gp_config *cfg, struct gp_ini_context *ctx)
             if (ret == 0) {
                 if (gp_boolean_is_true(value)) {
                     cfg->svcs[n]->any_uid = true;
+                }
+            }
+
+            ret = gp_config_get_string(ctx, secname,
+                                       "allow_protocol_transition", &value);
+            if (ret == 0) {
+                if (gp_boolean_is_true(value)) {
+                    cfg->svcs[n]->allow_proto_trans = true;
+                }
+            }
+
+            ret = gp_config_get_string(ctx, secname,
+                                       "allow_constrained_delegation", &value);
+            if (ret == 0) {
+                if (gp_boolean_is_true(value)) {
+                    cfg->svcs[n]->allow_const_deleg = true;
+                }
+            }
+
+            ret = gp_config_get_string(ctx, secname,
+                                       "allow_client_ccache_sync", &value);
+            if (ret == 0) {
+                if (gp_boolean_is_true(value)) {
+                    cfg->svcs[n]->allow_cc_sync = true;
                 }
             }
 
@@ -297,11 +423,6 @@ static int load_services(struct gp_config *cfg, struct gp_ini_context *ctx)
                     ret = ENOMEM;
                     goto done;
                 }
-            }
-
-            ret = setup_service_creds_handle(cfg->svcs[n]);
-            if (ret) {
-                goto done;
             }
 
             ret = gp_config_get_string(ctx, secname, "mechs", &value);
@@ -337,6 +458,7 @@ static int load_services(struct gp_config *cfg, struct gp_ini_context *ctx)
                         safefree(vcopy);
                         return ret;
                     }
+
                 } else {
                     GPERROR("Unknown mech: %s in [%s], ignoring.\n",
                             token, secname);
@@ -401,7 +523,7 @@ static int load_services(struct gp_config *cfg, struct gp_ini_context *ctx)
         return ENOENT;
     }
 
-    ret = 0;
+    ret = check_services(cfg);
 
 done:
     safefree(secname);
@@ -409,6 +531,7 @@ done:
 }
 
 static int gp_init_ini_context(const char *config_file,
+                               const char *config_dir,
                                struct gp_ini_context **ctxp)
 {
     struct gp_ini_context *ctx;
@@ -423,7 +546,7 @@ static int gp_init_ini_context(const char *config_file,
         return ENOENT;
     }
 
-    ret = gp_config_init(config_file, ctx);
+    ret = gp_config_init(config_file, config_dir, ctx);
 
     if (ret) {
         free(ctx);
@@ -437,9 +560,11 @@ int load_config(struct gp_config *cfg)
 {
     struct gp_ini_context *ctx;
     const char *tmpstr;
+    int tmp_dbg_lvl = 0;
+    int tmpint = 0;
     int ret;
 
-    ret = gp_init_ini_context(cfg->config_file, &ctx);
+    ret = gp_init_ini_context(cfg->config_file, cfg->config_dir, &ctx);
     if (ret) {
         return ret;
     }
@@ -447,8 +572,17 @@ int load_config(struct gp_config *cfg)
     ret = gp_config_get_string(ctx, "gssproxy", "debug", &tmpstr);
     if (ret == 0) {
         if (gp_boolean_is_true(tmpstr)) {
-            gp_debug_enable();
+            if (tmp_dbg_lvl == 0) {
+                tmp_dbg_lvl = 1;
+            }
         }
+    } else if (ret != ENOENT) {
+        goto done;
+    }
+
+    ret = gp_config_get_int(ctx, "gssproxy", "debug_level", &tmpint);
+    if (ret == 0) {
+        tmp_dbg_lvl = tmpint;
     } else if (ret != ENOENT) {
         goto done;
     }
@@ -476,15 +610,17 @@ done:
     if (ret != 0) {
         GPERROR("Error reading configuration %d: %s", ret, gp_strerror(ret));
     }
+    gp_debug_toggle(tmp_dbg_lvl);
     gp_config_close(ctx);
     safefree(ctx);
     return ret;
 }
 
-struct gp_config *read_config(char *config_file, char *socket_name,
-                              int opt_daemonize)
+struct gp_config *read_config(char *config_file, char *config_dir,
+                              char *socket_name, int opt_daemonize)
 {
     const char *socket = GP_SOCKET_NAME;
+    const char *dir = NULL;
     struct gp_config *cfg;
     int ret;
 
@@ -496,14 +632,27 @@ struct gp_config *read_config(char *config_file, char *socket_name,
     if (config_file) {
         cfg->config_file = strdup(config_file);
         if (!cfg->config_file) {
-            free(cfg);
-            return NULL;
+            ret = ENOMEM;
+            goto done;
         }
     } else {
         ret = asprintf(&cfg->config_file, "%s/gssproxy.conf", PUBCONF_PATH);
         if (ret == -1) {
-            free(cfg);
-            return NULL;
+            goto done;
+        }
+    }
+
+    if (config_dir) {
+        dir = config_dir;
+    } else if (!config_file) {
+        dir = PUBCONF_PATH;
+    }
+
+    if (dir) {
+        cfg->config_dir = strdup(dir);
+        if (!cfg->config_dir) {
+            ret = ENOMEM;
+            goto done;
         }
     }
 
@@ -528,12 +677,14 @@ struct gp_config *read_config(char *config_file, char *socket_name,
 
     ret = load_config(cfg);
     if (ret) {
-        GPDEBUG("Config file not found!\n");
+        GPDEBUG("Config file(s) not found!\n");
     }
 
 done:
     if (ret) {
+        /* recursively frees cfg */
         free_config(&cfg);
+        return NULL;
     }
 
     return cfg;
@@ -541,7 +692,7 @@ done:
 
 struct gp_creds_handle *gp_service_get_creds_handle(struct gp_service *svc)
 {
-    return svc->creds_handle;
+    return svc->krb5.creds_handle;
 }
 
 void free_config(struct gp_config **cfg)
@@ -554,6 +705,7 @@ void free_config(struct gp_config **cfg)
     }
 
     free(config->config_file);
+    free(config->config_dir);
     free(config->socket_name);
     free(config->proxy_user);
 
@@ -567,65 +719,154 @@ void free_config(struct gp_config **cfg)
     *cfg = NULL;
 }
 
-#ifdef WITH_INIPARSER
-#include "gp_config_iniparser.h"
+static int gp_config_from_file(const char *config_file,
+                               struct gp_ini_context *ctx,
+                               struct ini_cfgobj *ini_config,
+                               const uint32_t collision_flags)
+{
+    struct ini_cfgfile *file_ctx = NULL;
+    int ret;
 
-int gp_config_init(const char *config_file,
+    ret = ini_config_file_open(config_file,
+                               0, /* metadata_flags, FIXME */
+                               &file_ctx);
+    if (ret) {
+        GPDEBUG("Failed to open config file: %d (%s)\n",
+                ret, gp_strerror(ret));
+        ini_config_destroy(ini_config);
+        return ret;
+    }
+
+    ret = ini_config_parse(file_ctx,
+                           INI_STOP_ON_ANY, /* error_level */
+                           collision_flags,
+                           INI_PARSE_NOWRAP, /* parse_flags */
+                           ini_config);
+    if (ret) {
+        char **errors = NULL;
+        /* we had a parsing failure */
+        GPDEBUG("Failed to parse config file: %d (%s)\n",
+                ret, gp_strerror(ret));
+        if (ini_config_error_count(ini_config)) {
+            ini_config_get_errors(ini_config, &errors);
+            if (errors) {
+                ini_config_print_errors(stderr, errors);
+                ini_config_free_errors(errors);
+            }
+        }
+        ini_config_file_destroy(file_ctx);
+        ini_config_destroy(ini_config);
+        return ret;
+    }
+
+    ini_config_file_destroy(file_ctx);
+    return 0;
+}
+
+static int gp_config_from_dir(const char *config_dir,
+                              struct gp_ini_context *ctx,
+                              struct ini_cfgobj **ini_config,
+                              const uint32_t collision_flags)
+{
+    struct ini_cfgobj *result_cfg = NULL;
+    struct ref_array *error_list = NULL;
+    int ret;
+
+    const char *patterns[] = {
+        /* match only files starting with "##-" and ending in ".conf" */
+        "^[0-9]\\{2\\}-.\\{1,\\}\\.conf$",
+        NULL,
+    };
+
+    const char *sections[] = {
+        /* match either "gssproxy" or sections that start with "service/" */
+        "^gssproxy$",
+        "^service/.*$",
+        NULL,
+    };
+
+    /* Permission check failures silently skip the file, so they are not
+     * useful to us. */
+    ret = ini_config_augment(*ini_config,
+                             config_dir,
+                             patterns,
+                             sections,
+                             NULL, /* check_perm */
+                             INI_STOP_ON_ANY, /* error_level */
+                             collision_flags,
+                             INI_PARSE_NOWRAP,
+                             /* do not allow colliding sections with the same
+                              * name in different files */
+                             INI_MS_ERROR,
+                             &result_cfg,
+                             &error_list,
+                             NULL);
+    if (ret) {
+        if (error_list) {
+            uint32_t i;
+            uint32_t len = ref_array_getlen(error_list, &i);
+            for (i = 0; i < len; i++) {
+                GPDEBUG("Error when reading config directory: %s\n",
+                        (const char *) ref_array_get(error_list, i, NULL));
+            }
+            ref_array_destroy(error_list);
+        } else {
+            GPDEBUG("Error when reading config directory number: %d\n", ret);
+        }
+        return ret;
+    }
+
+    /* if we read no new files, result_cfg will be NULL */
+    if (result_cfg) {
+        ini_config_destroy(*ini_config);
+        *ini_config = result_cfg;
+    }
+    if (error_list) {
+        ref_array_destroy(error_list);
+    }
+    return 0;
+}
+
+int gp_config_init(const char *config_file, const char *config_dir,
                    struct gp_ini_context *ctx)
 {
-    return gp_iniparser_init(config_file, ctx);
-}
+    struct ini_cfgobj *ini_config = NULL;
+    int ret;
 
-int gp_config_get_string(struct gp_ini_context *ctx,
-                         const char *secname,
-                         const char *keyname,
-                         char **value)
-{
-    return gp_iniparser_get_string(ctx, secname, keyname, value);
-}
+    /* Within a single file, merge all collisions */
+    const uint32_t collision_flags =
+      INI_MS_MERGE | INI_MV1S_ALLOW | INI_MV2S_ALLOW;
 
-int gp_config_get_string_array(struct gp_ini_context *ctx,
-                               const char *secname,
-                               const char *keyname,
-                               int *num_values,
-                               char ***values)
-{
-    return ENOENT;
-}
+    if (!ctx) {
+        return EINVAL;
+    }
 
-int gp_config_get_int(struct gp_ini_context *ctx,
-                      const char *secname,
-                      const char *keyname,
-                      int *value)
-{
-    return gp_iniparser_get_int(ctx, secname, keyname, value);
-}
+    ret = ini_config_create(&ini_config);
+    if (ret) {
+        return ENOENT;
+    }
 
-int gp_config_get_nsec(struct gp_ini_context *ctx)
-{
-    return gp_iniparser_get_nsec(ctx);
-}
+    if (config_file) {
+        ret = gp_config_from_file(config_file, ctx, ini_config,
+                                  collision_flags);
+        if (ret == ENOENT) {
+            GPDEBUG("Expected config file %s but did not find it.\n",
+                    config_file);
+        } else if (ret) {
+            return ret;
+        }
+    }
+    if (config_dir) {
+        ret = gp_config_from_dir(config_dir, ctx, &ini_config,
+                                 collision_flags);
+        if (ret) {
+            return ret;
+        }
+    }
 
-char *gp_config_get_secname(struct gp_ini_context *ctx,
-                            int i)
-{
-    return gp_iniparser_get_secname(ctx, i);
-}
+    ctx->private_data = ini_config;
 
-int gp_config_close(struct gp_ini_context *ctx)
-{
-    return gp_iniparser_close(ctx);
-}
-
-#endif /* WITH_INIPARSER */
-
-#ifdef WITH_DINGLIBS
-#include "gp_config_dinglibs.h"
-
-int gp_config_init(const char *config_file,
-                   struct gp_ini_context *ctx)
-{
-    return gp_dinglibs_init(config_file, ctx);
+    return 0;
 }
 
 int gp_config_get_string(struct gp_ini_context *ctx,
@@ -633,7 +874,37 @@ int gp_config_get_string(struct gp_ini_context *ctx,
                          const char *keyname,
                          const char **value)
 {
-    return gp_dinglibs_get_string(ctx, secname, keyname, value);
+    struct ini_cfgobj *ini_config = (struct ini_cfgobj *)ctx->private_data;
+    struct value_obj *vo = NULL;
+    int ret;
+    const char *val;
+
+    if (!value) {
+        return -1;
+    }
+
+    *value = NULL;
+
+    ret = ini_get_config_valueobj(secname,
+                                  keyname,
+                                  ini_config,
+                                  INI_GET_FIRST_VALUE,
+                                  &vo);
+    if (ret) {
+        return ret;
+    }
+    if (!vo) {
+        return ENOENT;
+    }
+
+    val = ini_get_const_string_config_value(vo, &ret);
+    if (ret) {
+        return ret;
+    }
+
+    *value = val;
+
+    return 0;
 }
 
 int gp_config_get_string_array(struct gp_ini_context *ctx,
@@ -642,8 +913,100 @@ int gp_config_get_string_array(struct gp_ini_context *ctx,
                                int *num_values,
                                const char ***values)
 {
-    return gp_dinglibs_get_string_array(ctx, secname, keyname,
-                                        num_values, values);
+    struct ini_cfgobj *ini_config = (struct ini_cfgobj *)ctx->private_data;
+    struct value_obj *vo = NULL;
+    const char *value;
+    int ret;
+    int i, count = 0;
+    const char **array = NULL;
+    const char **t_array;
+
+    if (!values || !num_values) {
+        return EINVAL;
+    }
+
+    *num_values = 0;
+    *values = NULL;
+
+    ret = ini_get_config_valueobj(secname,
+                                  keyname,
+                                  ini_config,
+                                  INI_GET_FIRST_VALUE,
+                                  &vo);
+    if (ret) {
+        return ret;
+    }
+    if (!vo) {
+        return ENOENT;
+    }
+
+    value = ini_get_const_string_config_value(vo, &ret);
+    if (ret) {
+        return ret;
+    }
+
+    array = calloc(1, sizeof(char *));
+    if (array == NULL) {
+        ret = ENOMEM;
+        goto done;
+    }
+
+    array[count] = strdup(value);
+    if (array[count] == NULL) {
+        ret = ENOMEM;
+        goto done;
+    }
+
+    count++;
+
+    do {
+        ret = ini_get_config_valueobj(secname,
+                                      keyname,
+                                      ini_config,
+                                      INI_GET_NEXT_VALUE,
+                                      &vo);
+        if (ret) {
+            goto done;
+        }
+        if (!vo) {
+            break;
+        }
+
+        value = ini_get_const_string_config_value(vo, &ret);
+        if (ret) {
+            goto done;
+        }
+
+        t_array = realloc(array, (count+1) * sizeof(char *));
+        if (t_array == NULL) {
+            ret = ENOMEM;
+            goto done;
+        }
+        array = t_array;
+
+        array[count] = strdup(value);
+        if (array[count] == NULL) {
+            ret = ENOMEM;
+            goto done;
+        }
+
+        count++;
+
+    } while (1);
+
+    *num_values = count;
+    *values = array;
+
+    ret = 0;
+
+done:
+    if (ret && array) {
+        for (i = 0; i < count; i++) {
+            safefree(array[i]);
+        }
+        safefree(array);
+    }
+    return ret;
 }
 
 int gp_config_get_int(struct gp_ini_context *ctx,
@@ -651,23 +1014,98 @@ int gp_config_get_int(struct gp_ini_context *ctx,
                       const char *keyname,
                       int *value)
 {
-    return gp_dinglibs_get_int(ctx, secname, keyname, value);
+    struct ini_cfgobj *ini_config = (struct ini_cfgobj *)ctx->private_data;
+    struct value_obj *vo = NULL;
+    int ret;
+    int val;
+
+    if (!value) {
+        return EINVAL;
+    }
+
+    *value = -1;
+
+    ret = ini_get_config_valueobj(secname,
+                                  keyname,
+                                  ini_config,
+                                  INI_GET_FIRST_VALUE,
+                                  &vo);
+
+    if (ret) {
+        return ret;
+    }
+    if (!vo) {
+        return ENOENT;
+    }
+
+    val = ini_get_int_config_value(vo,
+                                   0, /* strict */
+                                   0, /* default */
+                                   &ret);
+    if (ret) {
+        return ret;
+    }
+
+    *value = val;
+
+    return 0;
 }
 
 int gp_config_get_nsec(struct gp_ini_context *ctx)
 {
-    return gp_dinglibs_get_nsec(ctx);
+    struct ini_cfgobj *ini_config = (struct ini_cfgobj *)ctx->private_data;
+    char **list = NULL;
+    int count;
+    int error;
+
+    list = ini_get_section_list(ini_config, &count, &error);
+    if (error) {
+        return 0;
+    }
+
+    ini_free_section_list(list);
+
+    return count;
 }
 
 char *gp_config_get_secname(struct gp_ini_context *ctx,
                             int i)
 {
-    return gp_dinglibs_get_secname(ctx, i);
+    struct ini_cfgobj *ini_config = (struct ini_cfgobj *)ctx->private_data;
+    char **list = NULL;
+    int count;
+    int error;
+    char *secname;
+
+    list = ini_get_section_list(ini_config, &count, &error);
+    if (error) {
+        return NULL;
+    }
+
+    if (i >= count) {
+        return NULL;
+    }
+
+    secname = strdup(list[i]);
+    ini_free_section_list(list);
+    if (!secname) {
+        return NULL;
+    }
+
+    return secname;
 }
 
 int gp_config_close(struct gp_ini_context *ctx)
 {
-    return gp_dinglibs_close(ctx);
-}
+    struct ini_cfgobj *ini_config = NULL;
 
-#endif /* WITH_DINGLIBS */
+    if (!ctx) {
+        return 0;
+    }
+
+    ini_config = (struct ini_cfgobj *)ctx->private_data;
+
+    ini_config_destroy(ini_config);
+
+    return 0;
+}

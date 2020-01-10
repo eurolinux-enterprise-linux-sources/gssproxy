@@ -1,28 +1,4 @@
-/*
-   GSS-PROXY
-
-   Copyright (C) 2011-2012 Red Hat, Inc.
-   Copyright (C) 2011 Simo Sorce <simo.sorce@redhat.com>
-   Copyright (C) 2012 Guenther Deschner <guenther.deschner@redhat.com>
-
-   Permission is hereby granted, free of charge, to any person obtaining a
-   copy of this software and associated documentation files (the "Software"),
-   to deal in the Software without restriction, including without limitation
-   the rights to use, copy, modify, merge, publish, distribute, sublicense,
-   and/or sell copies of the Software, and to permit persons to whom the
-   Software is furnished to do so, subject to the following conditions:
-
-   The above copyright notice and this permission notice shall be included in
-   all copies or substantial portions of the Software.
-
-   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
-   THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-   DEALINGS IN THE SOFTWARE.
-*/
+/* Copyright (C) 2011,2012 the GSS-PROXY contributors, see COPYING for license */
 
 #include "config.h"
 #include <stdio.h>
@@ -41,8 +17,8 @@
 #define GP_CREDS_HANDLE_KEY_ENCTYPE ENCTYPE_AES256_CTS_HMAC_SHA1_96
 
 struct gp_creds_handle {
-    krb5_keyblock key;
     krb5_context context;
+    krb5_keyblock *key;
 };
 
 void gp_free_creds_handle(struct gp_creds_handle **in)
@@ -54,7 +30,7 @@ void gp_free_creds_handle(struct gp_creds_handle **in)
     }
 
     if (handle->context) {
-        krb5_free_keyblock_contents(handle->context, &handle->key);
+        krb5_free_keyblock(handle->context, handle->key);
         krb5_free_context(handle->context);
     }
 
@@ -63,7 +39,104 @@ void gp_free_creds_handle(struct gp_creds_handle **in)
     return;
 }
 
-uint32_t gp_init_creds_handle(uint32_t *min, struct gp_creds_handle **out)
+uint32_t gp_init_creds_with_keytab(uint32_t *min, const char *svc_name,
+                                   const char *keytab,
+                                   struct gp_creds_handle *handle)
+{
+    char ktname[MAX_KEYTAB_NAME_LEN + 1] = {0};
+    krb5_keytab ktid = NULL;
+    krb5_kt_cursor cursor;
+    krb5_keytab_entry entry;
+    krb5_enctype *permitted;
+    uint32_t ret_maj = 0;
+    uint32_t ret_min = 0;
+    int ret;
+
+    if (keytab) {
+        strncpy(ktname, keytab, MAX_KEYTAB_NAME_LEN);
+        ret = krb5_kt_resolve(handle->context, keytab, &ktid);
+    }
+    /* if the keytab is not specified or fails to resolve try default */
+    if (!keytab || ret != 0) {
+        ret = krb5_kt_default_name(handle->context, ktname,
+                                   MAX_KEYTAB_NAME_LEN);
+        if (ret) {
+            strncpy(ktname, "[default]", MAX_KEYTAB_NAME_LEN);
+        }
+        ret = krb5_kt_default(handle->context, &ktid);
+    }
+    if (ret == 0) {
+        ret = krb5_kt_have_content(handle->context, ktid);
+    }
+    if (ret) {
+        GPDEBUG("Keytab %s has no content (%d)\n", ktname, ret);
+        ret_min = ret;
+        ret_maj = GSS_S_CRED_UNAVAIL;
+        goto done;
+    }
+
+    ret = krb5_get_permitted_enctypes(handle->context, &permitted);
+    if (ret) {
+        GPDEBUG("Failed to source permitted enctypes (%d)\n", ret);
+        ret_min = ret;
+        ret_maj = GSS_S_FAILURE;
+        goto done;
+    }
+
+    ret = krb5_kt_start_seq_get(handle->context, ktid, &cursor);
+    if (ret) {
+        GPDEBUG("krb5_kt_start_seq_get() failed (%d)\n", ret);
+        ret_min = ret;
+        ret_maj = GSS_S_FAILURE;
+        goto done;
+    }
+    do {
+        ret = krb5_kt_next_entry(handle->context, ktid, &entry, &cursor);
+        if (ret == 0) {
+            for (unsigned i = 0; permitted[i] != 0; i++) {
+                if (permitted[i] == entry.key.enctype) {
+                    /* should we derive a key instead ? */
+                    ret = krb5_copy_keyblock(handle->context, &entry.key,
+                                             &handle->key);
+                    if (ret == 0) {
+                        GPDEBUG("Service: %s, Keytab: %s, Enctype: %d\n",
+                                svc_name, ktname, entry.key.enctype);
+                        ret = KRB5_KT_END;
+                    } else {
+                        GPDEBUG("krb5_copy_keyblock failed (%d)\n", ret);
+                    }
+                    break;
+                }
+            }
+            (void)krb5_free_keytab_entry_contents(handle->context, &entry);
+        }
+    } while (ret == 0);
+    (void)krb5_kt_end_seq_get(handle->context, ktid, &cursor);
+    if ((ret == KRB5_KT_END) && (handle->key == NULL)) {
+        ret = KRB5_WRONG_ETYPE;
+        ret_maj = GSS_S_CRED_UNAVAIL;
+        goto done;
+    }
+    if (ret != KRB5_KT_END) {
+        ret_min = ret;
+        ret_maj = GSS_S_CRED_UNAVAIL;
+        goto done;
+    }
+
+    ret_min = 0;
+    ret_maj = GSS_S_COMPLETE;
+
+done:
+    if (ktid) {
+        (void)krb5_kt_close(handle->context, ktid);
+    }
+    *min = ret_min;
+    return ret_maj;
+}
+
+uint32_t gp_init_creds_handle(uint32_t *min, const char *svc_name,
+                              const char *keytab,
+                              struct gp_creds_handle **out)
 {
     struct gp_creds_handle *handle;
     uint32_t ret_maj = 0;
@@ -85,13 +158,26 @@ uint32_t gp_init_creds_handle(uint32_t *min, struct gp_creds_handle **out)
         goto done;
     }
 
-    ret = krb5_c_make_random_key(handle->context,
-                                 GP_CREDS_HANDLE_KEY_ENCTYPE,
+    /* Try to use a keytab, and fall back to a random runtime secret if all
+     * else fails */
+    ret_maj = gp_init_creds_with_keytab(&ret_min, svc_name, keytab, handle);
+    if (ret_maj != GSS_S_COMPLETE) {
+        /* fallback */
+        ret = krb5_init_keyblock(handle->context,
+                                 GP_CREDS_HANDLE_KEY_ENCTYPE, 0,
                                  &handle->key);
-    if (ret) {
-        ret_min = ret;
-        ret_maj = GSS_S_FAILURE;
-        goto done;
+        if (ret == 0) {
+            ret = krb5_c_make_random_key(handle->context,
+                                         GP_CREDS_HANDLE_KEY_ENCTYPE,
+                                         handle->key);
+            GPDEBUG("Service: %s, Enckey: [ephemeral], Enctype: %d\n",
+                    svc_name, GP_CREDS_HANDLE_KEY_ENCTYPE);
+        }
+        if (ret) {
+            ret_min = ret;
+            ret_maj = GSS_S_FAILURE;
+            goto done;
+        }
     }
 
     ret_maj = GSS_S_COMPLETE;
@@ -121,7 +207,7 @@ static int gp_encrypt_buffer(krb5_context context, krb5_keyblock *key,
     memset(&enc_handle, '\0', sizeof(krb5_enc_data));
 
     ret = krb5_c_encrypt_length(context,
-                                GP_CREDS_HANDLE_KEY_ENCTYPE,
+                                key->enctype,
                                 data_in.length,
                                 &cipherlen);
     if (ret) {
@@ -198,8 +284,8 @@ uint32_t gp_export_gssx_cred(uint32_t *min, struct gp_call_ctx *gpcall,
     uint32_t lifetime;
     gss_cred_usage_t cred_usage;
     gss_OID_set mechanisms = NULL;
-    uint32_t initiator_lifetime;
-    uint32_t acceptor_lifetime;
+    uint32_t initiator_lifetime = 0;
+    uint32_t acceptor_lifetime = 0;
     struct gssx_cred_element *el;
     int ret;
     int i, j;
@@ -219,14 +305,14 @@ uint32_t gp_export_gssx_cred(uint32_t *min, struct gp_call_ctx *gpcall,
     gss_release_name(&ret_min, &name);
     name = NULL;
 
-    out->elements.elements_len = mechanisms->count;
-    out->elements.elements_val = calloc(out->elements.elements_len,
+    out->elements.elements_val = calloc(mechanisms->count,
                                         sizeof(gssx_cred_element));
     if (!out->elements.elements_val) {
         ret_maj = GSS_S_FAILURE;
         ret_min = ENOMEM;
         goto done;
     }
+    out->elements.elements_len = mechanisms->count;
 
     for (i = 0, j = 0; i < mechanisms->count; i++, j++) {
 
@@ -241,14 +327,10 @@ uint32_t gp_export_gssx_cred(uint32_t *min, struct gp_call_ctx *gpcall,
         if (ret_maj) {
             gp_log_failure(&mechanisms->elements[i], ret_maj, ret_min);
 
-            /* temporarily skip any offender */
+            /* skip any offender */
             out->elements.elements_len--;
             j--;
             continue;
-#if 0
-            ret = EINVAL;
-            goto done;
-#endif
         }
 
         ret_maj = gp_conv_name_to_gssx(&ret_min, name, &el->MN);
@@ -282,7 +364,7 @@ uint32_t gp_export_gssx_cred(uint32_t *min, struct gp_call_ctx *gpcall,
         goto done;
     }
 
-    ret = gp_encrypt_buffer(handle->context, &handle->key,
+    ret = gp_encrypt_buffer(handle->context, handle->key,
                             token.length, token.value,
                             &out->cred_handle_reference);
     if (ret) {
@@ -307,6 +389,7 @@ done:
 }
 
 #define KRB5_SET_ALLOWED_ENCTYPE "krb5_set_allowed_enctype_values"
+#define KRB5_SET_NO_CI_FLAGS "krb5_set_no_ci_flags"
 
 static void gp_set_cred_options(gssx_cred *cred, gss_cred_id_t gss_cred)
 {
@@ -314,6 +397,7 @@ static void gp_set_cred_options(gssx_cred *cred, gss_cred_id_t gss_cred)
     struct gssx_option *op;
     uint32_t num_ktypes = 0;
     krb5_enctype *ktypes;
+    bool no_ci_flags = false;
     uint32_t maj, min;
     int i, j;
 
@@ -329,6 +413,12 @@ static void gp_set_cred_options(gssx_cred *cred, gss_cred_id_t gss_cred)
                 num_ktypes = op->value.octet_string_len / sizeof(krb5_enctype);
                 ktypes = (krb5_enctype *)op->value.octet_string_val;
                 break;
+            } else if ((op->option.octet_string_len ==
+                        sizeof(KRB5_SET_NO_CI_FLAGS)) &&
+                (strncmp(KRB5_SET_NO_CI_FLAGS,
+                         op->option.octet_string_val,
+                         op->option.octet_string_len) == 0)) {
+                no_ci_flags = true;
             }
         }
     }
@@ -338,6 +428,16 @@ static void gp_set_cred_options(gssx_cred *cred, gss_cred_id_t gss_cred)
                                               num_ktypes, ktypes);
         if (maj != GSS_S_COMPLETE) {
             GPDEBUG("Failed to set allowable enctypes\n");
+        }
+    }
+
+    if (no_ci_flags) {
+        gss_buffer_desc empty_buffer = GSS_C_EMPTY_BUFFER;
+        maj = gss_set_cred_option(&min, &gss_cred,
+                                  discard_const(GSS_KRB5_CRED_NO_CI_FLAGS_X),
+                                  &empty_buffer);
+        if (maj != GSS_S_COMPLETE) {
+            GPDEBUG("Failed to set NO CI Flags\n");
         }
     }
 }
@@ -366,7 +466,7 @@ uint32_t gp_import_gssx_cred(uint32_t *min, struct gp_call_ctx *gpcall,
         goto done;
     }
 
-    ret = gp_decrypt_buffer(handle->context, &handle->key,
+    ret = gp_decrypt_buffer(handle->context, handle->key,
                             &cred->cred_handle_reference,
                             &token.length, token.value);
     if (ret) {
@@ -400,21 +500,16 @@ enum exp_ctx_types {
 int gp_get_exported_context_type(struct gssx_call_ctx *ctx)
 {
 
-    struct gssx_option *val;
-    int i;
+    struct gssx_option *val = NULL;
 
-    for (i = 0; i < ctx->options.options_len; i++) {
-        val = &ctx->options.options_val[i];
-        if (val->option.octet_string_len == sizeof(EXP_CTX_TYPE_OPTION) &&
-            strncmp(EXP_CTX_TYPE_OPTION,
-                        val->option.octet_string_val,
-                        val->option.octet_string_len) == 0) {
-            if (strncmp(LINUX_LUCID_V1,
-                        val->value.octet_string_val,
-                        val->value.octet_string_len) == 0) {
-                return EXP_CTX_LINUX_LUCID_V1;
-            }
-            return -1;
+    gp_options_find(val, ctx->options,
+                    EXP_CTX_TYPE_OPTION, sizeof(EXP_CTX_TYPE_OPTION));
+    if (val) {
+        if (gp_option_value_match(val, LINUX_LUCID_V1,
+                                  sizeof(LINUX_LUCID_V1))) {
+            return EXP_CTX_LINUX_LUCID_V1;
+        } else {
+            return EXP_CTX_PARTIAL;
         }
     }
 
@@ -559,14 +654,18 @@ uint32_t gp_export_ctx_id_to_gssx(uint32_t *min, int type, gss_OID mech,
         goto done;
     }
 
-    ret_maj = gp_conv_name_to_gssx(&ret_min, src_name, &out->src_name);
-    if (ret_maj) {
-        goto done;
+    if (src_name != GSS_C_NO_NAME) {
+        ret_maj = gp_conv_name_to_gssx(&ret_min, src_name, &out->src_name);
+        if (ret_maj) {
+            goto done;
+        }
     }
 
-    ret_maj = gp_conv_name_to_gssx(&ret_min, targ_name, &out->targ_name);
-    if (ret_maj) {
-        goto done;
+    if (targ_name != GSS_C_NO_NAME) {
+        ret_maj = gp_conv_name_to_gssx(&ret_min, targ_name, &out->targ_name);
+        if (ret_maj) {
+            goto done;
+        }
     }
 
     out->lifetime = lifetime_rec;
@@ -689,22 +788,16 @@ enum exp_creds_types {
 int gp_get_export_creds_type(struct gssx_call_ctx *ctx)
 {
 
-    struct gssx_option *val;
-    int i;
+    struct gssx_option *val = NULL;
 
-    for (i = 0; i < ctx->options.options_len; i++) {
-        val = &ctx->options.options_val[i];
-        if (val->option.octet_string_len == sizeof(EXP_CREDS_TYPE_OPTION) &&
-            strncmp(EXP_CREDS_TYPE_OPTION,
-                        val->option.octet_string_val,
-                        val->option.octet_string_len) == 0) {
-            if (strncmp(LINUX_CREDS_V1,
-                        val->value.octet_string_val,
-                        val->value.octet_string_len) == 0) {
-                return EXP_CREDS_LINUX_V1;
-            }
-            return -1;
+    gp_options_find(val, ctx->options,
+                    EXP_CREDS_TYPE_OPTION, sizeof(EXP_CREDS_TYPE_OPTION));
+    if (val) {
+        if (gp_option_value_match(val, LINUX_CREDS_V1,
+                                  sizeof(LINUX_CREDS_V1))) {
+            return EXP_CREDS_LINUX_V1;
         }
+        return -1;
     }
 
     return EXP_CREDS_NO_CREDS;
@@ -735,7 +828,7 @@ static uint32_t gp_export_creds_enoent(uint32_t *min, gss_buffer_t buf)
 static uint32_t gp_export_creds_linux(uint32_t *min, gss_name_t name,
                                       gss_const_OID mech, gss_buffer_t buf)
 {
-    gss_buffer_desc localname;
+    gss_buffer_desc localname = {};
     uint32_t ret_maj;
     uint32_t ret_min;
     struct passwd pwd, *res;
@@ -802,6 +895,7 @@ static uint32_t gp_export_creds_linux(uint32_t *min, gss_name_t name,
     case ENOENT:
     case ESRCH:
         free(pwbuf);
+        gss_release_buffer(&ret_min, &localname);
         return gp_export_creds_enoent(min, buf);
     default:
         ret_min = ret;
@@ -852,6 +946,7 @@ done:
     }
     free(pwbuf);
     *min = ret_min;
+    gss_release_buffer(&ret_min, &localname);
     return ret_maj;
 }
 

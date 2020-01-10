@@ -1,27 +1,4 @@
-/*
-   GSS-PROXY
-
-   Copyright (C) 2011 Red Hat, Inc.
-   Copyright (C) 2011 Simo Sorce <simo.sorce@redhat.com>
-
-   Permission is hereby granted, free of charge, to any person obtaining a
-   copy of this software and associated documentation files (the "Software"),
-   to deal in the Software without restriction, including without limitation
-   the rights to use, copy, modify, merge, publish, distribute, sublicense,
-   and/or sell copies of the Software, and to permit persons to whom the
-   Software is furnished to do so, subject to the following conditions:
-
-   The above copyright notice and this permission notice shall be included in
-   all copies or substantial portions of the Software.
-
-   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
-   THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-   DEALINGS IN THE SOFTWARE.
-*/
+/* Copyright (C) 2011 the GSS-PROXY contributors, see COPYING for license */
 
 #include "gp_rpc_process.h"
 #include <gssapi/gssapi_krb5.h>
@@ -49,10 +26,19 @@ int gp_init_sec_context(struct gp_call_ctx *gpcall,
     uint32_t init_maj;
     uint32_t init_min;
     int exp_ctx_type;
+    struct gp_cred_check_handle gcch = {
+        .ctx = gpcall,
+        .options.options_len = arg->init_sec_context.options.options_len,
+        .options.options_val = arg->init_sec_context.options.options_val,
+    };
+    uint32_t gccn_before = 0;
+    uint32_t gccn_after = 0;
     int ret;
 
     isca = &arg->init_sec_context;
     iscr = &res->init_sec_context;
+
+    GPRPCDEBUG(gssx_arg_init_sec_context, isca);
 
     exp_ctx_type = gp_get_exported_context_type(&isca->call_ctx);
     if (exp_ctx_type == -1) {
@@ -75,7 +61,10 @@ int gp_init_sec_context(struct gp_call_ctx *gpcall,
         if (ret_maj) {
             goto done;
         }
+
+        gccn_before = gp_check_sync_creds(&gcch, ich);
     }
+
     ret_maj = gp_conv_gssx_to_name(&ret_min, isca->target_name, &target_name);
     if (ret_maj) {
         goto done;
@@ -105,7 +94,7 @@ int gp_init_sec_context(struct gp_call_ctx *gpcall,
     if (!isca->cred_handle) {
         if (gss_oid_equal(mech_type, gss_mech_krb5)) {
             ret_maj = gp_add_krb5_creds(&ret_min, gpcall,
-                                        NULL, NULL,
+                                        ACQ_NORMAL, NULL, NULL,
                                         GSS_C_INITIATE,
                                         time_req, 0, &ich,
                                         NULL, NULL, NULL);
@@ -117,6 +106,11 @@ int gp_init_sec_context(struct gp_call_ctx *gpcall,
         if (ret_maj) {
             goto done;
         }
+    }
+
+    ret_maj = gp_cred_allowed(&ret_min, gpcall, ich);
+    if (ret_maj) {
+        goto done;
     }
 
     gp_filter_flags(gpcall, &req_flags);
@@ -172,6 +166,20 @@ int gp_init_sec_context(struct gp_call_ctx *gpcall,
         }
     }
 
+    gccn_after = gp_check_sync_creds(&gcch, ich);
+
+    if (gccn_before != gccn_after) {
+        /* export creds back to client for sync up */
+        ret_maj = gp_export_sync_creds(&ret_min, gpcall, &ich,
+                                       &iscr->options.options_val,
+                                       &iscr->options.options_len);
+        if (ret_maj) {
+            /* not fatal, log and continue */
+            GPDEBUG("Failed to export sync creds (%d: %d)",
+                    (int)ret_maj, (int)ret_min);
+        }
+    }
+
     ret_maj = GSS_S_COMPLETE;
 
 done:
@@ -182,8 +190,12 @@ done:
     ret = gp_conv_status_to_gssx(&isca->call_ctx,
                                  ret_maj, ret_min, mech_type,
                                  &iscr->status);
+
+    GPRPCDEBUG(gssx_res_init_sec_context, iscr);
+
     gss_release_name(&ret_min, &target_name);
     gss_release_oid(&ret_min, &mech_type);
     gss_release_cred(&ret_min, &ich);
+    gss_release_buffer(&ret_min, &obuf);
     return ret;
 }

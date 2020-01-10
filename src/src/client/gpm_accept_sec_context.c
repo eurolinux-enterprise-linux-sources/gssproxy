@@ -1,27 +1,4 @@
-/*
-   GSS-PROXY
-
-   Copyright (C) 2011 Red Hat, Inc.
-   Copyright (C) 2011 Simo Sorce <simo.sorce@redhat.com>
-
-   Permission is hereby granted, free of charge, to any person obtaining a
-   copy of this software and associated documentation files (the "Software"),
-   to deal in the Software without restriction, including without limitation
-   the rights to use, copy, modify, merge, publish, distribute, sublicense,
-   and/or sell copies of the Software, and to permit persons to whom the
-   Software is furnished to do so, subject to the following conditions:
-
-   The above copyright notice and this permission notice shall be included in
-   all copies or substantial portions of the Software.
-
-   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
-   THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-   DEALINGS IN THE SOFTWARE.
-*/
+/* Copyright (C) 2011 the GSS-PROXY contributors, see COPYING for license */
 
 #include "gssapi_gpm.h"
 #include "src/gp_conv.h"
@@ -73,6 +50,11 @@ OM_uint32 gpm_accept_sec_context(OM_uint32 *minor_status,
         }
     }
 
+    /* check if we want delegated creds */
+    if (delegated_cred_handle) {
+        arg->ret_deleg_cred = true;
+    }
+
     /* execute proxy request */
     ret = gpm_make_call(GSSX_ACCEPT_SEC_CONTEXT, &uarg, &ures);
     if (ret) {
@@ -97,11 +79,13 @@ OM_uint32 gpm_accept_sec_context(OM_uint32 *minor_status,
         }
     }
 
-    if (res->context_handle) {
-        ctx = res->context_handle;
-        /* we are stealing the delegated creds on success, so we do not want
-        * it to be freed by xdr_free */
-        res->context_handle = NULL;
+    ctx = res->context_handle;
+    /* we are stealing the delegated creds on success, so we do not want
+     * it to be freed by xdr_free */
+    res->context_handle = NULL;
+    if (ctx == NULL) {
+        ret = EINVAL;
+        goto done;
     }
 
     if (src_name) {

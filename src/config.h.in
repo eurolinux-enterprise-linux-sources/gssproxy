@@ -50,9 +50,6 @@
 /* Define if you have the iconv() function. */
 #undef HAVE_ICONV
 
-/* Define to 1 if you have the <iniparser.h> header file. */
-#undef HAVE_INIPARSER_H
-
 /* Define to 1 if you have the <inttypes.h> header file. */
 #undef HAVE_INTTYPES_H
 
@@ -131,8 +128,7 @@
 /* Where to store log files for gssproxy */
 #undef LOG_PATH
 
-/* Define to the sub-directory in which libtool stores uninstalled libraries.
-   */
+/* Define to the sub-directory where libtool stores uninstalled libraries. */
 #undef LT_OBJDIR
 
 /* Name of package */
@@ -223,12 +219,6 @@
 
 /* Version number of package */
 #undef VERSION
-
-/* Using ini_config */
-#undef WITH_DINGLIBS
-
-/* Using iniparser */
-#undef WITH_INIPARSER
 
 /* Define to 1 if on MINIX. */
 #undef _MINIX

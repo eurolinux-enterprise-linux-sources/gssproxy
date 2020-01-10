@@ -1,35 +1,281 @@
-/*
-   GSS-PROXY
-
-   Copyright (C) 2012 Red Hat, Inc.
-   Copyright (C) 2012 Simo Sorce <simo.sorce@redhat.com>
-
-   Permission is hereby granted, free of charge, to any person obtaining a
-   copy of this software and associated documentation files (the "Software"),
-   to deal in the Software without restriction, including without limitation
-   the rights to use, copy, modify, merge, publish, distribute, sublicense,
-   and/or sell copies of the Software, and to permit persons to whom the
-   Software is furnished to do so, subject to the following conditions:
-
-   The above copyright notice and this permission notice shall be included in
-   all copies or substantial portions of the Software.
-
-   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
-   THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-   DEALINGS IN THE SOFTWARE.
-*/
+/* Copyright (C) 2015 the GSS-PROXY contributors, see COPYING for license */
 
 #include "gss_plugin.h"
 #include <gssapi/gssapi_krb5.h>
 
+#define GPKRB_SRV_NAME "Encrypted/Credentials/v1@X-GSSPROXY:"
+
+uint32_t gpp_cred_handle_init(uint32_t *min, bool defcred, const char *ccache,
+                              struct gpp_cred_handle **out_handle)
+{
+    struct gpp_cred_handle *h = NULL;
+    uint32_t maj = 0;
+
+    h = calloc(1, sizeof(struct gpp_cred_handle));
+    if (!h) {
+        *min = ENOMEM;
+        return GSS_S_FAILURE;
+    }
+
+    h->default_creds = defcred;
+
+    if (ccache) {
+        h->store.elements = calloc(1, sizeof(gss_key_value_element_desc));
+        if (!h->store.elements) {
+            *min = ENOMEM;
+            maj = GSS_S_FAILURE;
+            goto done;
+        }
+        h->store.count = 1;
+
+        h->store.elements[0].key = strdup("ccache");
+        if (!h->store.elements[0].key) {
+            *min = ENOMEM;
+            maj = GSS_S_FAILURE;
+            goto done;
+        }
+
+        h->store.elements[0].value = strdup(ccache);
+        if (!h->store.elements[0].value) {
+            *min = ENOMEM;
+            maj = GSS_S_FAILURE;
+            goto done;
+        }
+    }
+
+done:
+    if (maj) {
+        uint32_t tmp;
+        (void)gpp_cred_handle_free(&tmp, h);
+    } else {
+        *out_handle = h;
+    }
+    return maj;
+}
+
+uint32_t gpp_cred_handle_free(uint32_t *min, struct gpp_cred_handle *handle)
+{
+    uint32_t maj = GSS_S_COMPLETE;
+
+    *min = 0;
+
+    if (!handle) {
+        return GSS_S_COMPLETE;
+    }
+
+    if (handle->local) {
+        maj = gss_release_cred(min, &handle->local);
+    }
+
+    if (handle->remote) {
+        xdr_free((xdrproc_t)xdr_gssx_cred, (char *)handle->remote);
+        free(handle->remote);
+    }
+
+    if (handle->store.count > 0) {
+        for (size_t i = 0; i < handle->store.count; i++) {
+            free((void *)handle->store.elements[i].key);
+            free((void *)handle->store.elements[i].value);
+        }
+        free(handle->store.elements);
+        handle->store.count = 0;
+    }
+
+    free(handle);
+    return maj;
+}
+
+/* NOTE: currently the only things we check for are the cred name and the
+ * cred_handle_reference.  We do NOT check each cred element beyond that they
+ * match in number */
+bool gpp_creds_are_equal(gssx_cred *a, gssx_cred *b)
+{
+    gssx_buffer *ta;
+    gssx_buffer *tb;
+
+    if (!a && !b) {
+        return true;
+    } else if (!a || !b) {
+        return false;
+    }
+
+    ta = &a->desired_name.display_name;
+    tb = &b->desired_name.display_name;
+    if (ta->octet_string_len != tb->octet_string_len) {
+        return false;
+    } else if (!ta->octet_string_val && tb->octet_string_val) {
+        return false;
+    } else if (ta->octet_string_val) {
+        if (!tb->octet_string_val) {
+            return false;
+        } else if (memcmp(ta->octet_string_val, tb->octet_string_val,
+                   ta->octet_string_len) != 0) {
+            return false;
+        }
+    }
+
+    if (a->elements.elements_len != b->elements.elements_len) {
+        return false;
+    }
+
+    ta = &a->cred_handle_reference;
+    tb = &b->cred_handle_reference;
+    if (ta->octet_string_len != tb->octet_string_len) {
+        return false;
+    } else if (!ta->octet_string_val && tb->octet_string_val) {
+        return false;
+    } else if (ta->octet_string_val) {
+        if (!tb->octet_string_val) {
+            return false;
+        } else if (memcmp(ta->octet_string_val, tb->octet_string_val,
+                   ta->octet_string_len) != 0) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+uint32_t gpp_store_remote_creds(uint32_t *min, bool default_creds,
+                                gss_const_key_value_set_t cred_store,
+                                gssx_cred *creds)
+{
+    krb5_context ctx = NULL;
+    krb5_ccache ccache = NULL;
+    krb5_creds cred;
+    krb5_error_code ret;
+    char cred_name[creds->desired_name.display_name.octet_string_len + 1];
+    XDR xdrctx;
+    bool xdrok;
+
+    *min = 0;
+
+    memset(&cred, 0, sizeof(cred));
+
+    ret = krb5_init_context(&ctx);
+    if (ret) return ret;
+
+    if (cred_store) {
+        for (unsigned i = 0; i < cred_store->count; i++) {
+            if (strcmp(cred_store->elements[i].key, "ccache") == 0) {
+                ret = krb5_cc_resolve(ctx, cred_store->elements[i].value,
+                                      &ccache);
+                if (ret) goto done;
+                break;
+            }
+        }
+    }
+    if (!ccache) {
+        if (!default_creds) {
+            ret = ENOMEDIUM;
+            goto done;
+        }
+        ret = krb5_cc_default(ctx, &ccache);
+        if (ret) goto done;
+    }
+
+    memcpy(cred_name, creds->desired_name.display_name.octet_string_val,
+           creds->desired_name.display_name.octet_string_len);
+    cred_name[creds->desired_name.display_name.octet_string_len] = '\0';
+
+    ret = krb5_parse_name(ctx, cred_name, &cred.client);
+    if (ret) goto done;
+
+    ret = krb5_parse_name(ctx, GPKRB_SRV_NAME, &cred.server);
+    if (ret) goto done;
+
+    cred.ticket.data = malloc(GPKRB_MAX_CRED_SIZE);
+    xdrmem_create(&xdrctx, cred.ticket.data, GPKRB_MAX_CRED_SIZE, XDR_ENCODE);
+    xdrok = xdr_gssx_cred(&xdrctx, creds);
+    if (!xdrok) {
+        ret = ENOSPC;
+        goto done;
+    }
+    cred.ticket.length = xdr_getpos(&xdrctx);
+
+    /* Always initialize and destroy any existing contents to avoid pileup of
+     * entries */
+    ret = krb5_cc_initialize(ctx, ccache, cred.client);
+    if (ret == 0) {
+        ret = krb5_cc_store_cred(ctx, ccache, &cred);
+    }
+
+done:
+    if (ctx) {
+        krb5_free_cred_contents(ctx, &cred);
+        if (ccache) krb5_cc_close(ctx, ccache);
+        krb5_free_context(ctx);
+    }
+    *min = ret;
+    return ret ? GSS_S_FAILURE : GSS_S_COMPLETE;
+}
+
+OM_uint32 gppint_retrieve_remote_creds(uint32_t *min, const char *ccache_name,
+                                       gssx_name *name, gssx_cred *creds)
+{
+    krb5_context ctx = NULL;
+    krb5_ccache ccache = NULL;
+    krb5_creds cred;
+    krb5_creds icred;
+    krb5_error_code ret;
+    XDR xdrctx;
+    bool xdrok;
+
+    memset(&cred, 0, sizeof(krb5_creds));
+    memset(&icred, 0, sizeof(krb5_creds));
+
+    ret = krb5_init_context(&ctx);
+    if (ret) goto done;
+
+    if (ccache_name) {
+        ret = krb5_cc_resolve(ctx, ccache_name, &ccache);
+    } else {
+        ret = krb5_cc_default(ctx, &ccache);
+    }
+    if (ret) goto done;
+
+    if (name) {
+        char client_name[name->display_name.octet_string_len + 1];
+        memcpy(client_name, name->display_name.octet_string_val,
+               name->display_name.octet_string_len);
+        client_name[name->display_name.octet_string_len] = '\0';
+
+        ret = krb5_parse_name(ctx, client_name, &icred.client);
+    } else {
+        ret = krb5_cc_get_principal(ctx, ccache, &icred.client);
+    }
+    if (ret) goto done;
+
+    ret = krb5_parse_name(ctx, GPKRB_SRV_NAME, &icred.server);
+    if (ret) goto done;
+
+    ret = krb5_cc_retrieve_cred(ctx, ccache, 0, &icred, &cred);
+    if (ret) goto done;
+
+    xdrmem_create(&xdrctx, cred.ticket.data, cred.ticket.length, XDR_DECODE);
+    xdrok = xdr_gssx_cred(&xdrctx, creds);
+
+    if (xdrok) {
+        ret = 0;
+    } else {
+        ret = EIO;
+    }
+
+done:
+    if (ctx) {
+        krb5_free_cred_contents(ctx, &cred);
+        krb5_free_cred_contents(ctx, &icred);
+        if (ccache) krb5_cc_close(ctx, ccache);
+        krb5_free_context(ctx);
+    }
+    *min = ret;
+    return ret ? GSS_S_FAILURE : GSS_S_COMPLETE;
+}
+
 static OM_uint32 get_local_def_creds(OM_uint32 *minor_status,
                                      struct gpp_name_handle *name,
                                      gss_cred_usage_t cred_usage,
-                                     struct gpp_cred_handle *cred_handle)
+                                     gss_cred_id_t *cred_handle)
 {
     gss_OID_set interposed_mechs = GSS_C_NO_OID_SET;
     gss_OID_set special_mechs = GSS_C_NO_OID_SET;
@@ -48,7 +294,7 @@ static OM_uint32 get_local_def_creds(OM_uint32 *minor_status,
     }
 
     maj = gss_acquire_cred(&min, name ? name->local : NULL, 0, special_mechs,
-                           cred_usage, &cred_handle->local, NULL, NULL);
+                           cred_usage, cred_handle, NULL, NULL);
 done:
     *minor_status = min;
     (void)gss_release_oid_set(&min, &special_mechs);
@@ -68,17 +314,21 @@ OM_uint32 gppint_get_def_creds(OM_uint32 *minor_status,
     OM_uint32 maj = GSS_S_FAILURE;
     OM_uint32 min = 0;
 
-    cred = calloc(1, sizeof(struct gpp_cred_handle));
-    if (!cred) {
-        min = ENOMEM;
-        goto done;
+    if (*cred_handle) {
+        cred = *cred_handle;
+    } else {
+        maj = gpp_cred_handle_init(&min, true, NULL, &cred);
+        if (maj != GSS_S_COMPLETE) {
+            *minor_status = min;
+            return maj;
+        }
     }
 
     /* See if we should try local first */
     if (behavior == GPP_LOCAL_ONLY || behavior == GPP_LOCAL_FIRST) {
 
-        maj = get_local_def_creds(&min, name, cred_usage, cred);
-        if (maj != GSS_S_NO_CRED || behavior != GPP_LOCAL_FIRST) {
+        maj = get_local_def_creds(&min, name, cred_usage, &cred->local);
+        if (maj == GSS_S_COMPLETE || behavior == GPP_LOCAL_ONLY) {
             goto done;
         }
 
@@ -88,18 +338,41 @@ OM_uint32 gppint_get_def_creds(OM_uint32 *minor_status,
     }
 
     /* Then try with remote */
-    if (behavior == GPP_REMOTE_ONLY || behavior == GPP_REMOTE_FIRST) {
+    if (behavior != GPP_LOCAL_ONLY) {
+        gssx_cred remote;
+        gssx_cred *premote = NULL;
 
-        maj = gpm_acquire_cred(&min,
-                               NULL, 0, NULL, cred_usage,
+        memset(&remote, 0, sizeof(gssx_cred));
+
+        /* We intentionally ignore failures as finding creds is optional */
+        maj = gppint_retrieve_remote_creds(&min, NULL,
+                                           name ? name->remote : NULL,
+                                           &remote);
+        if (maj == GSS_S_COMPLETE) {
+            premote = &remote;
+        }
+
+        maj = gpm_acquire_cred(&min, premote,
+                               NULL, 0, NULL, cred_usage, false,
                                &cred->remote, NULL, NULL);
+        if (maj == GSS_S_COMPLETE) {
+            if (premote &&
+                !gpp_creds_are_equal(premote, cred->remote)) {
+                maj = gpp_store_remote_creds(&min, cred->default_creds,
+                                             &cred->store, cred->remote);
+            }
+        }
 
-        if (maj == GSS_S_COMPLETE || behavior == GPP_REMOTE_ONLY) {
+        xdr_free((xdrproc_t)xdr_gssx_cred, (char *)&remote);
+
+        if (maj == GSS_S_COMPLETE) {
             goto done;
         }
 
-        /* So remote failed, but we can fallback to local, try that */
-        maj = get_local_def_creds(&min, name, cred_usage, cred);
+        if (behavior == GPP_REMOTE_FIRST) {
+            /* So remote failed, but we can fallback to local, try that */
+            maj = get_local_def_creds(&min, name, cred_usage, &cred->local);
+        }
     }
 
 done:
@@ -109,7 +382,9 @@ done:
     }
     *minor_status = min;
     if (maj != GSS_S_COMPLETE) {
-        gssi_release_cred(&min, (gss_cred_id_t *)&cred);
+        if (cred != *cred_handle) {
+            gssi_release_cred(&min, (gss_cred_id_t *)&cred);
+        }
     }
     *cred_handle = cred;
     return maj;
@@ -286,12 +561,9 @@ static uint32_t gpp_set_opt_allowable_entypes(uint32_t *min, gssx_cred *cred,
     struct gpp_allowable_enctypes *ae;
     struct gssx_cred_element *ce = NULL;
     gss_OID_desc mech;
-    gssx_option *to;
-    gssx_buffer *tb;
-    int i;
 
     /* Find the first element that matches one of the krb related OIDs */
-    for (i = 0; i < cred->elements.elements_len; i++) {
+    for (unsigned i = 0; i < cred->elements.elements_len; i++) {
         gp_conv_gssx_to_oid(&cred->elements.elements_val[i].mech, &mech);
         if (gpp_is_krb5_oid(&mech)) {
             ce = &cred->elements.elements_val[i];
@@ -304,36 +576,51 @@ static uint32_t gpp_set_opt_allowable_entypes(uint32_t *min, gssx_cred *cred,
         return GSS_S_FAILURE;
     }
 
-    to = realloc(ce->options.options_val,
-                 sizeof(gssx_option) * (ce->options.options_len + 1));
-    if (!to) {
-        *min = ENOMEM;
-        return GSS_S_FAILURE;
-    }
-    ce->options.options_val = to;
-    i = ce->options.options_len;
-
-    tb = &ce->options.options_val[i].option;
-    tb->octet_string_len = sizeof(KRB5_SET_ALLOWED_ENCTYPE);
-    tb->octet_string_val = strdup(KRB5_SET_ALLOWED_ENCTYPE);
-    if (!tb->octet_string_val) {
-        *min = ENOMEM;
-        return GSS_S_FAILURE;
-    }
-
     ae = (struct gpp_allowable_enctypes *)value->value;
-    tb = &ce->options.options_val[i].value;
-    tb->octet_string_len = sizeof(krb5_enctype) * ae->num_ktypes;
-    tb->octet_string_val = malloc(tb->octet_string_len);
-    if (!tb->octet_string_val) {
-        *min = ENOMEM;
+    *min = gp_add_option(&ce->options.options_val,
+                         &ce->options.options_len,
+                         KRB5_SET_ALLOWED_ENCTYPE,
+                         sizeof(KRB5_SET_ALLOWED_ENCTYPE),
+                         ae->ktypes,
+                         sizeof(krb5_enctype) * ae->num_ktypes);
+    if (*min != 0) {
         return GSS_S_FAILURE;
     }
-    memcpy(tb->octet_string_val, ae->ktypes, tb->octet_string_len);
 
-    ce->options.options_len++;
+    return GSS_S_COMPLETE;
+}
 
-    *min = 0;
+#define KRB5_SET_NO_CI_FLAGS "krb5_set_no_ci_flags"
+
+static uint32_t gpp_set_no_ci_flags(uint32_t *min, gssx_cred *cred,
+                                    const gss_buffer_t value)
+{
+    struct gssx_cred_element *ce = NULL;
+    gss_OID_desc mech;
+
+    /* Find the first element that matches one of the krb related OIDs */
+    for (unsigned i = 0; i < cred->elements.elements_len; i++) {
+        gp_conv_gssx_to_oid(&cred->elements.elements_val[i].mech, &mech);
+        if (gpp_is_krb5_oid(&mech)) {
+            ce = &cred->elements.elements_val[i];
+            break;
+        }
+    }
+
+    if (!ce) {
+        *min = EINVAL;
+        return GSS_S_FAILURE;
+    }
+
+    *min = gp_add_option(&ce->options.options_val,
+                         &ce->options.options_len,
+                         KRB5_SET_NO_CI_FLAGS,
+                         sizeof(KRB5_SET_NO_CI_FLAGS),
+                         NULL, 0);
+    if (*min != 0) {
+        return GSS_S_FAILURE;
+    }
+
     return GSS_S_COMPLETE;
 }
 
@@ -345,6 +632,8 @@ static uint32_t gpp_remote_options(uint32_t *min, gssx_cred *cred,
 
     if (gss_oid_equal(&gpp_allowed_enctypes_oid, desired_object)) {
         maj = gpp_set_opt_allowable_entypes(min, cred, value);
+    } else if (gss_oid_equal(GSS_KRB5_CRED_NO_CI_FLAGS_X, desired_object)) {
+        maj = gpp_set_no_ci_flags(min, cred, value);
     }
 
     return maj;
@@ -391,6 +680,21 @@ OM_uint32 gssi_store_cred(OM_uint32 *minor_status,
                           gss_OID_set *elements_stored,
                           gss_cred_usage_t *cred_usage_stored)
 {
+    return gssi_store_cred_into(minor_status, input_cred_handle, input_usage,
+                                desired_mech, overwrite_cred, default_cred,
+                                NULL, elements_stored, cred_usage_stored);
+}
+
+OM_uint32 gssi_store_cred_into(OM_uint32 *minor_status,
+                               const gss_cred_id_t input_cred_handle,
+                               gss_cred_usage_t input_usage,
+                               const gss_OID desired_mech,
+                               OM_uint32 overwrite_cred,
+                               OM_uint32 default_cred,
+                               gss_const_key_value_set_t cred_store,
+                               gss_OID_set *elements_stored,
+                               gss_cred_usage_t *cred_usage_stored)
+{
     struct gpp_cred_handle *cred = NULL;
     OM_uint32 maj, min;
 
@@ -402,16 +706,17 @@ OM_uint32 gssi_store_cred(OM_uint32 *minor_status,
     }
     cred = (struct gpp_cred_handle *)input_cred_handle;
 
-    /* NOTE: For now we can do this only for local credentials */
-    if (!cred->local) {
-        return GSS_S_UNAVAILABLE;
+    if (cred->remote) {
+        maj = gpp_store_remote_creds(&min, default_cred != 0, cred_store,
+                                     cred->remote);
+        goto done;
     }
 
-    maj = gss_store_cred(&min, cred->local, input_usage,
-                         gpp_special_mech(desired_mech),
-                         overwrite_cred, default_cred,
-                         elements_stored, cred_usage_stored);
-
+    maj = gss_store_cred_into(&min, cred->local, input_usage,
+                              gpp_special_mech(desired_mech),
+                              overwrite_cred, default_cred, cred_store,
+                              elements_stored, cred_usage_stored);
+done:
     *minor_status = gpp_map_error(min);
     return maj;
 }
@@ -419,38 +724,31 @@ OM_uint32 gssi_store_cred(OM_uint32 *minor_status,
 OM_uint32 gssi_release_cred(OM_uint32 *minor_status,
                             gss_cred_id_t *cred_handle)
 {
-    struct gpp_cred_handle *cred;
-    OM_uint32 maj, min;
-    OM_uint32 rmaj = GSS_S_COMPLETE;
+    struct gpp_cred_handle *handle;
+    uint32_t tmaj;
+    uint32_t tmin;
+    uint32_t maj;
+    uint32_t min;
 
     GSSI_TRACE();
 
-    if (*cred_handle == GSS_C_NO_CREDENTIAL) {
-        *minor_status = 0;
-        return GSS_S_COMPLETE;
+    if (cred_handle == NULL) {
+        return GSS_S_CALL_INACCESSIBLE_READ;
     }
 
-    cred = (struct gpp_cred_handle *)*cred_handle;
+    handle = (struct gpp_cred_handle *)*cred_handle;
 
-    if (cred->local) {
-        maj = gss_release_cred(&min, &cred->local);
-        if (maj != GSS_S_COMPLETE) {
-            rmaj = maj;
-            *minor_status = gpp_map_error(min);
-        }
+    tmaj = gpm_release_cred(&tmin, &handle->remote);
+
+    maj = gpp_cred_handle_free(&min, handle);
+    if (tmaj && maj == GSS_S_COMPLETE) {
+        maj = tmaj;
+        min = tmin;
     }
 
-    if (cred->remote) {
-        maj = gpm_release_cred(&min, &cred->remote);
-        if (maj && rmaj == GSS_S_COMPLETE) {
-            rmaj = maj;
-            *minor_status = gpp_map_error(min);
-        }
-    }
-
-    free(cred);
     *cred_handle = GSS_C_NO_CREDENTIAL;
-    return rmaj;
+    *minor_status = min;
+    return maj;
 }
 
 OM_uint32 gssi_export_cred(OM_uint32 *minor_status,
@@ -496,10 +794,9 @@ OM_uint32 gssi_import_cred_by_mech(OM_uint32 *minor_status,
 
     GSSI_TRACE();
 
-    cred = calloc(1, sizeof(struct gpp_cred_handle));
-    if (!cred) {
-        *minor_status = 0;
-        return GSS_S_FAILURE;
+    maj = gpp_cred_handle_init(minor_status, false, NULL, &cred);
+    if (maj) {
+        return maj;
     }
 
     /* NOTE: it makes no sense to import a cred remotely atm,
@@ -537,4 +834,3 @@ done:
     (void)gss_release_buffer(&min, &wrap_token);
     return maj;
 }
-

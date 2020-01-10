@@ -1,27 +1,4 @@
-/*
-   GSS-PROXY
-
-   Copyright (C) 2011 Red Hat, Inc.
-   Copyright (C) 2011 Simo Sorce <simo.sorce@redhat.com>
-
-   Permission is hereby granted, free of charge, to any person obtaining a
-   copy of this software and associated documentation files (the "Software"),
-   to deal in the Software without restriction, including without limitation
-   the rights to use, copy, modify, merge, publish, distribute, sublicense,
-   and/or sell copies of the Software, and to permit persons to whom the
-   Software is furnished to do so, subject to the following conditions:
-
-   The above copyright notice and this permission notice shall be included in
-   all copies or substantial portions of the Software.
-
-   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
-   THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-   DEALINGS IN THE SOFTWARE.
-*/
+/* Copyright (C) 2011 the GSS-PROXY contributors, see COPYING for license */
 
 #include "gssapi_gpm.h"
 #include <sys/types.h>
@@ -36,6 +13,12 @@
 struct gpm_ctx {
     pthread_mutex_t lock;
     int fd;
+
+    /* these are only meaningful if fd != -1 */
+    pid_t pid;
+    uid_t uid;
+    gid_t gid;
+
     int next_xid;
 };
 
@@ -116,6 +99,9 @@ done:
         }
     }
     gpmctx->fd = fd;
+    gpmctx->pid = getpid();
+    gpmctx->uid = geteuid();
+    gpmctx->gid = getegid();
     return ret;
 }
 
@@ -143,19 +129,30 @@ static void gpm_close_socket(struct gpm_ctx *gpmctx)
 static int gpm_grab_sock(struct gpm_ctx *gpmctx)
 {
     int ret;
+    pid_t p;
+    uid_t u;
+    gid_t g;
 
     ret = pthread_mutex_lock(&gpmctx->lock);
     if (ret) {
         return ret;
     }
 
+    /* Detect fork / setresuid and friends */
+    p = getpid();
+    u = geteuid();
+    g = getegid();
+
+    if (gpmctx->fd != -1 &&
+        (p != gpmctx->pid || u != gpmctx->uid || g != gpmctx->gid)) {
+        gpm_close_socket(gpmctx);
+    }
+
     if (gpmctx->fd == -1) {
         ret = gpm_open_socket(gpmctx);
     }
 
-    if (ret) {
-        pthread_mutex_unlock(&gpmctx->lock);
-    }
+    pthread_mutex_unlock(&gpmctx->lock);
     return ret;
 }
 
@@ -183,8 +180,8 @@ static int gpm_send_buffer(struct gpm_ctx *gpmctx,
 
     retry = false;
     do {
-        ret = 0;
         do {
+            ret = 0;
             wn = send(gpmctx->fd, &size, sizeof(uint32_t), MSG_NOSIGNAL);
             if (wn == -1) {
                 ret = errno;
@@ -239,8 +236,8 @@ static int gpm_recv_buffer(struct gpm_ctx *gpmctx,
     size_t pos;
     int ret;
 
-    ret = 0;
     do {
+        ret = 0;
         rn = read(gpmctx->fd, &size, sizeof(uint32_t));
         if (rn == -1) {
             ret = errno;
@@ -477,6 +474,7 @@ int gpm_make_call(int proc, union gp_rpc_arg *arg, union gp_rpc_res *res)
     sockgrab = false;
 
     /* decode header */
+    memset(&msg, 0, sizeof(gp_rpc_msg));
     xdrok = xdr_gp_rpc_msg(&xdr_reply_ctx, &msg);
     if (!xdrok) {
         ret = EINVAL;

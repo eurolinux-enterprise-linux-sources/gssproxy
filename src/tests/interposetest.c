@@ -1,27 +1,4 @@
-/*
-   GSS-PROXY
-
-   Copyright (C) 2011 Red Hat, Inc.
-   Copyright (C) 2011 Simo Sorce <simo.sorce@redhat.com>
-
-   Permission is hereby granted, free of charge, to any person obtaining a
-   copy of this software and associated documentation files (the "Software"),
-   to deal in the Software without restriction, including without limitation
-   the rights to use, copy, modify, merge, publish, distribute, sublicense,
-   and/or sell copies of the Software, and to permit persons to whom the
-   Software is furnished to do so, subject to the following conditions:
-
-   The above copyright notice and this permission notice shall be included in
-   all copies or substantial portions of the Software.
-
-   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
-   THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-   DEALINGS IN THE SOFTWARE.
-*/
+/* Copyright (C) 2011 the GSS-PROXY contributors, see COPYING for license */
 
 #include "config.h"
 #include <stdlib.h>
@@ -40,81 +17,12 @@
 #include "src/gp_log.h"
 #include "popt.h"
 #include <libintl.h>
+#include "t_utils.h"
 
-#define MAX_RPC_SIZE 1024*1024
 #define _(STRING) gettext(STRING)
 
 static const char *actor = "<not set>";
-
-#define DEBUG(...) do { \
-    char msg[4096]; \
-    snprintf(msg, 4096, __VA_ARGS__); \
-    fprintf(stderr, "%s line %d: %s", actor, __LINE__, msg); \
-    fflush(stderr); \
-} while(0);
-
-static int gp_send_buffer(int fd, char *buf, uint32_t len)
-{
-    uint32_t size;
-    size_t wn;
-    size_t pos;
-
-    size = htonl(len);
-
-    wn = write(fd, &size, sizeof(uint32_t));
-    if (wn != 4) {
-        return EIO;
-    }
-
-    pos = 0;
-    while (len > pos) {
-        wn = write(fd, buf + pos, len - pos);
-        if (wn == -1) {
-            if (errno == EINTR) {
-                continue;
-            }
-            return errno;
-        }
-        pos += wn;
-    }
-
-    return 0;
-}
-
-static int gp_recv_buffer(int fd, char *buf, uint32_t *len)
-{
-    uint32_t size;
-    size_t rn;
-    size_t pos;
-
-    rn = read(fd, &size, sizeof(uint32_t));
-    if (rn != 4) {
-        return EIO;
-    }
-
-    *len = ntohl(size);
-
-    if (*len > MAX_RPC_SIZE) {
-        return EINVAL;
-    }
-
-    pos = 0;
-    while (*len > pos) {
-        rn = read(fd, buf + pos, *len - pos);
-        if (rn == -1) {
-            if (errno == EINTR) {
-                continue;
-            }
-            return errno;
-        }
-        if (rn == 0) {
-            return EIO;
-        }
-        pos += rn;
-    }
-
-    return 0;
-}
+const char **argv;
 
 static int gptest_inq_context(gss_ctx_id_t ctx)
 {
@@ -230,7 +138,7 @@ void run_client(struct aproc *data)
     gss_ctx_id_t ctx = GSS_C_NO_CONTEXT;
     gss_cred_id_t cred_handle = GSS_C_NO_CREDENTIAL;
     gss_buffer_desc msg_buf = GSS_C_EMPTY_BUFFER;
-    char *message = "SECRET";
+    const char *message = "SECRET";
     int ret = -1;
     gss_iov_buffer_desc iov[2] = { { 0, { 0, NULL } }, { 0, { 0, NULL } } };
     int sealed;
@@ -275,7 +183,7 @@ void run_client(struct aproc *data)
         }
         if (out_token.length != 0) {
             /* send to server */
-            ret = gp_send_buffer(data->srv_pipe[1],
+            ret = t_send_buffer(data->srv_pipe[1],
                                  out_token.value, out_token.length);
             if (ret) {
                 DEBUG("Failed to send data to server!\n");
@@ -292,7 +200,7 @@ void run_client(struct aproc *data)
 
         if (ret_maj == GSS_S_CONTINUE_NEEDED) {
             /* and wait for reply */
-            ret = gp_recv_buffer(data->cli_pipe[0], buffer, &buflen);
+            ret = t_recv_buffer(data->cli_pipe[0], buffer, &buflen);
             if (ret) {
                 DEBUG("Failed to receive data from server!\n");
                 goto done;
@@ -327,7 +235,7 @@ void run_client(struct aproc *data)
 
     /* test encryption */
     msg_buf.length = strlen(message) + 1;
-    msg_buf.value = (void *)message;
+    msg_buf.value = discard_const(message);
     ret_maj = gss_wrap(&ret_min, ctx, 1, 0, &msg_buf, NULL, &out_token);
     if (ret_maj != GSS_S_COMPLETE) {
         DEBUG("Failed to wrap message.\n");
@@ -335,7 +243,7 @@ void run_client(struct aproc *data)
         goto done;
     }
 
-    ret = gp_send_buffer(data->srv_pipe[1], out_token.value, out_token.length);
+    ret = t_send_buffer(data->srv_pipe[1], out_token.value, out_token.length);
     if (ret) {
         DEBUG("Failed to send data to server!\n");
         goto done;
@@ -343,7 +251,7 @@ void run_client(struct aproc *data)
 
     gss_release_buffer(&ret_min, &out_token);
 
-    ret = gp_recv_buffer(data->cli_pipe[0], buffer, &buflen);
+    ret = t_recv_buffer(data->cli_pipe[0], buffer, &buflen);
     if (ret) {
         DEBUG("Failed to receive data from server!\n");
         goto done;
@@ -353,7 +261,7 @@ void run_client(struct aproc *data)
     buffer[buflen] = '\0';
 
     in_token.value = (void *)&buffer[buflen + 1];
-    ret = gp_recv_buffer(data->cli_pipe[0], in_token.value, &buflen);
+    ret = t_recv_buffer(data->cli_pipe[0], in_token.value, &buflen);
     if (ret) {
         DEBUG("Failed to receive data from server!\n");
         goto done;
@@ -420,13 +328,13 @@ void run_client(struct aproc *data)
         goto done;
     }
 
-    ret = gp_send_buffer(data->srv_pipe[1], iov[0].buffer.value, iov[0].buffer.length);
+    ret = t_send_buffer(data->srv_pipe[1], iov[0].buffer.value, iov[0].buffer.length);
     if (ret) {
         DEBUG("Failed to send data to server!\n");
         goto done;
     }
 
-    ret = gp_send_buffer(data->srv_pipe[1], iov[1].buffer.value, iov[1].buffer.length);
+    ret = t_send_buffer(data->srv_pipe[1], iov[1].buffer.value, iov[1].buffer.length);
     if (ret) {
         DEBUG("Failed to send data to server!\n");
         goto done;
@@ -439,7 +347,7 @@ void run_client(struct aproc *data)
         goto done;
     }
 
-    ret = gp_send_buffer(data->srv_pipe[1], out_token.value, out_token.length);
+    ret = t_send_buffer(data->srv_pipe[1], out_token.value, out_token.length);
     if (ret) {
         DEBUG("Failed to send data to server!\n");
         goto done;
@@ -512,7 +420,8 @@ void run_server(struct aproc *data)
         goto done;
     }
     ret_maj = gss_canonicalize_name(&ret_min, target_name,
-                                    gss_mech_krb5, &canon_name);
+                                    discard_const(gss_mech_krb5),
+                                    &canon_name);
     if (ret_maj) {
         DEBUG("gssproxy returned an error: %d\n", ret_maj);
         gp_log_failure(GSS_C_NO_OID, ret_maj, ret_min);
@@ -621,7 +530,7 @@ void run_server(struct aproc *data)
         goto done;
     }
 
-    ret = gp_recv_buffer(data->srv_pipe[0], buffer, &buflen);
+    ret = t_recv_buffer(data->srv_pipe[0], buffer, &buflen);
     if (ret) {
         DEBUG("Failed to get data from client!\n");
         goto done;
@@ -648,7 +557,7 @@ void run_server(struct aproc *data)
     }
 
     if (out_token.length) {
-        ret = gp_send_buffer(data->cli_pipe[1],
+        ret = t_send_buffer(data->cli_pipe[1],
                              out_token.value, out_token.length);
         if (ret) {
             DEBUG("Failed to send data to client!\n");
@@ -664,7 +573,7 @@ void run_server(struct aproc *data)
         goto done;
     }
 
-    ret = gp_recv_buffer(data->srv_pipe[0], buffer, &buflen);
+    ret = t_recv_buffer(data->srv_pipe[0], buffer, &buflen);
     if (ret) {
         DEBUG("Failed to get data from client!\n");
         goto done;
@@ -684,7 +593,7 @@ void run_server(struct aproc *data)
 
     gss_release_buffer(&ret_min, &out_token);
 
-    in_token.value = message;
+    in_token.value = discard_const(message);
     in_token.length = strlen(message);
 
     ret_maj = gss_get_mic(&ret_min, context_handle, 0, &in_token, &out_token);
@@ -694,12 +603,12 @@ void run_server(struct aproc *data)
         goto done;
     }
 
-    ret = gp_send_buffer(data->cli_pipe[1], in_token.value, in_token.length);
+    ret = t_send_buffer(data->cli_pipe[1], in_token.value, in_token.length);
     if (ret) {
         DEBUG("Failed to send data to client!\n");
         goto done;
     }
-    ret = gp_send_buffer(data->cli_pipe[1], out_token.value, out_token.length);
+    ret = t_send_buffer(data->cli_pipe[1], out_token.value, out_token.length);
     if (ret) {
         DEBUG("Failed to send data to client!\n");
         goto done;
@@ -709,7 +618,7 @@ void run_server(struct aproc *data)
 
     /* test gss_unwrap_iov */
 
-    ret = gp_recv_buffer(data->srv_pipe[0], buffer, &buflen);
+    ret = t_recv_buffer(data->srv_pipe[0], buffer, &buflen);
     if (ret) {
         DEBUG("Failed to get data from client!\n");
         goto done;
@@ -719,7 +628,7 @@ void run_server(struct aproc *data)
     iov[0].buffer.value = buffer;
     iov[0].buffer.length = buflen;
 
-    ret = gp_recv_buffer(data->srv_pipe[0], buffer+buflen, &buflen);
+    ret = t_recv_buffer(data->srv_pipe[0], buffer+buflen, &buflen);
     if (ret) {
         DEBUG("Failed to get data from client!\n");
         goto done;
@@ -741,7 +650,7 @@ void run_server(struct aproc *data)
         goto done;
     }
 
-    ret = gp_recv_buffer(data->srv_pipe[0], buffer, &buflen);
+    ret = t_recv_buffer(data->srv_pipe[0], buffer, &buflen);
     if (ret) {
         DEBUG("Failed to get data from client!\n");
         goto done;
@@ -893,7 +802,7 @@ done:
     return ret;
 }
 
-int main(int argc, const char *argv[])
+int main(int argc, const char *main_argv[])
 {
     int opt;
     poptContext pc;
@@ -912,6 +821,8 @@ int main(int argc, const char *argv[])
          _("Test all gssproxy modes"), NULL }, \
         POPT_TABLEEND
     };
+
+    argv = main_argv;
 
     pc = poptGetContext(argv[0], argc, argv, long_options, 0);
     while((opt = poptGetNextOpt(pc)) != -1) {

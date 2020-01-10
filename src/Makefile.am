@@ -21,7 +21,6 @@ gssconfdir = $(sysconfdir)/gss
 localedir = @localedir@
 
 ccpath = @ccpath@
-initdir = @initdir@
 systemdunitdir = @systemdunitdir@
 examplesdir= @datarootdir@/examples
 logpath = @logpath@
@@ -31,15 +30,25 @@ pkgconfigdir = $(libdir)/pkgconfig
 gpstatedir = @gpstatedir@
 gpclidir = @gpstatedir@/clients
 
+
+AM_DISTCHECK_CONFIGURE_FLAGS = \
+    --with-systemdunitdir='$$(prefix)/$(systemdunitdir)'
+
+AM_CPPFLAGS =
 AM_CFLAGS =
+AM_LDFLAGS =
 if WANT_AUX_INFO
     AM_CFLAGS += -aux-info $@.X
 endif
-if HAVE_GCC
-    AM_CFLAGS += -Wall -Wshadow -Wstrict-prototypes -Wpointer-arith \
-                 -Wcast-qual -Wcast-align -Wwrite-strings \
-                 -Werror-implicit-function-declaration \
-                 -fno-strict-aliasing
+AM_CFLAGS += -Wall -Wshadow -Wstrict-prototypes -Wpointer-arith \
+    -Wcast-qual -Wcast-align -Wwrite-strings \
+    -fstrict-aliasing -Wstrict-aliasing -Werror=strict-aliasing \
+    -Werror-implicit-function-declaration \
+    -Werror=format-security
+if BUILD_HARDENING
+    AM_CPPFLAGS += -D_FORTIFY_SOURCE=2 -Wdate-time
+    AM_CFLAGS += -fPIE -fstack-protector-strong
+    AM_LDFLAGS += -fPIE -pie -fPIC -Wl,-z,relro -Wl,-z,now
 endif
 
 dist_pkgconfig_DATA =
@@ -63,7 +72,7 @@ dist_noinst_DATA =
 # Global compilation settings #
 ###############################
 
-AM_CPPFLAGS = \
+AM_CPPFLAGS += \
     -Wall \
     -Iinclude \
     -I.. \
@@ -125,13 +134,12 @@ dist_noinst_HEADERS = \
     src/gp_proxy.h \
     src/client/gssapi_gpm.h \
     src/gp_common.h \
+    src/gp_rpc_debug.h \
     src/gp_log.h \
     src/gp_creds.h \
     src/gp_export.h \
     src/gp_conv.h \
     src/gp_config.h \
-    src/gp_config_iniparser.h \
-    src/gp_config_dinglibs.h \
     src/gp_debug.h \
     src/gp_rpc_creds.h \
     src/gp_selinux.h \
@@ -144,13 +152,12 @@ dist_noinst_HEADERS = \
 
 gssproxy_SOURCES = \
     src/gp_config.c \
-    src/gp_config_iniparser.c \
-    src/gp_config_dinglibs.c \
     src/gp_init.c \
     src/gp_socket.c \
     src/gp_workers.c \
     src/gp_creds.c \
     $(GP_RPCGEN_OBJ) \
+    src/gp_rpc_debug.c \
     src/gp_rpc_process.c \
     src/gp_conv.c \
     src/gp_export.c \
@@ -187,11 +194,13 @@ cli_srv_comm_SOURCES = \
     src/gp_log.c \
     $(GP_RPCGEN_OBJ) \
     $(GP_RPCCLI_OBJ) \
+    tests/t_utils.c \
     tests/cli_srv_comm.c
 
 interposetest_SOURCES = \
     src/gp_log.c \
     src/gp_debug.c \
+    tests/t_utils.c \
     tests/interposetest.c
 
 gssproxy_LDADD = \
@@ -221,14 +230,18 @@ endif
 # Installation Extras #
 #######################
 
-dist_init_SCRIPTS =
 systemdunit_DATA =
 if HAVE_SYSTEMD_UNIT
     systemdunit_DATA += \
         systemd/gssproxy.service
 endif
 
-noinst_DATA = examples/gssproxy.conf examples/mech
+noinst_DATA = \
+    examples/gssproxy.conf \
+    examples/24-nfs-server.conf \
+    examples/80-httpd.conf \
+    examples/99-nfs-client.conf \
+    examples/mech
 
 edit_cmd = $(SED) \
     -e 's|@sbindir[@]|$(sbindir)|g' \
@@ -246,13 +259,16 @@ replace_script = \
 EXTRA_DIST = \
     systemd/gssproxy.service.in \
     examples/gssproxy.conf.in \
+    examples/24-nfs-server.conf.in \
+    examples/80-httpd.conf.in \
+    examples/99-nfs-client.conf.in \
     examples/mech.in
 
 systemd/gssproxy.service: systemd/gssproxy.service.in Makefile
 	@$(MKDIR_P) systemd/
 	$(replace_script)
 
-examples/gssproxy.conf: examples/gssproxy.conf.in Makefile
+examples/%.conf: examples/%.conf.in Makefile
 	@$(MKDIR_P) examples/
 	$(replace_script)
 
@@ -286,19 +302,24 @@ install-exec-hook: installgsspdirs
 	mkdir -p doc $(DESTDIR)/$(docdir); cp -a doc $(DESTDIR)/$(docdir)/
 if HAVE_SYSTEMD_UNIT
 	mkdir -p $(DESTDIR)$(systemdunitdir)
-else
-	mkdir -p $(DESTDIR)$(initdir)
 endif
 
 clean-local:
 	rm -Rf doc
+	rm -Rf testdir
 
 CLEANFILES = *.X */*.X */*/*.X \
     examples/mech \
-    examples/gssproxy.conf
+    examples/gssproxy.conf \
+    examples/24-nfs-server.conf \
+    examples/80-httpd.conf \
+    examples/99-nfs-client.conf \
+    systemd/gssproxy.service
 
-tests: all $(check_PROGRAMS)
+check: all $(check_PROGRAMS)
 	$(srcdir)/tests/runtests.py
+
+tests: check
 
 # RPM-related tasks
 

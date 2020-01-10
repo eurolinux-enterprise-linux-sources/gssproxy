@@ -1,27 +1,4 @@
-/*
-   GSS-PROXY
-
-   Copyright (C) 2011 Red Hat, Inc.
-   Copyright (C) 2011 Simo Sorce <simo.sorce@redhat.com>
-
-   Permission is hereby granted, free of charge, to any person obtaining a
-   copy of this software and associated documentation files (the "Software"),
-   to deal in the Software without restriction, including without limitation
-   the rights to use, copy, modify, merge, publish, distribute, sublicense,
-   and/or sell copies of the Software, and to permit persons to whom the
-   Software is furnished to do so, subject to the following conditions:
-
-   The above copyright notice and this permission notice shall be included in
-   all copies or substantial portions of the Software.
-
-   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
-   THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-   DEALINGS IN THE SOFTWARE.
-*/
+/* Copyright (C) 2011,2015 the GSS-PROXY contributors, see COPYING for license */
 
 #include <stdlib.h>
 #include <sys/types.h>
@@ -125,12 +102,6 @@ static void break_loop(verto_ctx *vctx, verto_ev *ev)
     verto_break(vctx);
 }
 
-static void reload_conf(verto_ctx *vctx, verto_ev *ev)
-{
-    GPDEBUG("Reloading configuration after receiving a signal\n");
-    /* TODO */
-}
-
 verto_ctx *init_event_loop(void)
 {
     verto_ctx *vctx;
@@ -159,16 +130,12 @@ verto_ctx *init_event_loop(void)
         verto_free(vctx);
         return NULL;
     }
-    ev = verto_add_signal(vctx, VERTO_EV_FLAG_PERSIST, reload_conf, SIGHUP);
-    if (!ev) {
-        verto_free(vctx);
-        return NULL;
-    }
     ev = verto_add_signal(vctx, VERTO_EV_FLAG_PERSIST, VERTO_SIG_IGN, SIGPIPE);
     if (!ev) {
         verto_free(vctx);
         return NULL;
     }
+    /* SIGHUP handler added in main */
 
     return vctx;
 }
@@ -194,26 +161,29 @@ void init_proc_nfsd(struct gp_config *cfg)
     fd = open(LINUX_PROC_USE_GSS_PROXY_FILE, O_RDWR);
     if (fd == -1) {
         ret = errno;
-        GPDEBUG("Failed to open %s: %d (%s)\n",
+        fprintf(stderr, "GSS-Proxy is not supported by this kernel since "
+                "file %s could not be found: %d (%s)\n",
                 LINUX_PROC_USE_GSS_PROXY_FILE,
                 ret, gp_strerror(ret));
-        return;
+        exit(1);
     }
 
     ret = write(fd, buf, 1);
     if (ret != 1) {
         ret = errno;
-        GPDEBUG("Failed to write to %s: %d (%s)\n",
+        fprintf(stderr, "Failed to write to %s: %d (%s)\n",
                 LINUX_PROC_USE_GSS_PROXY_FILE,
                 ret, gp_strerror(ret));
+        exit(1);
     }
 
     ret = close(fd);
     if (ret == -1) {
         ret = errno;
-        GPDEBUG("Failed to close %s: %d (%s)\n",
+        fprintf(stderr, "Failed to close %s: %d (%s)\n",
                 LINUX_PROC_USE_GSS_PROXY_FILE,
                 ret, gp_strerror(ret));
+        exit(1);
     }
 }
 

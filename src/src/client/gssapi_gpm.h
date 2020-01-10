@@ -1,27 +1,4 @@
-/*
-   GSS-PROXY
-
-   Copyright (C) 2011 Red Hat, Inc.
-   Copyright (C) 2011 Simo Sorce <simo.sorce@redhat.com>
-
-   Permission is hereby granted, free of charge, to any person obtaining a
-   copy of this software and associated documentation files (the "Software"),
-   to deal in the Software without restriction, including without limitation
-   the rights to use, copy, modify, merge, publish, distribute, sublicense,
-   and/or sell copies of the Software, and to permit persons to whom the
-   Software is furnished to do so, subject to the following conditions:
-
-   The above copyright notice and this permission notice shall be included in
-   all copies or substantial portions of the Software.
-
-   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
-   THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-   DEALINGS IN THE SOFTWARE.
-*/
+/* Copyright (C) 2011 the GSS-PROXY contributors, see COPYING for license */
 
 #ifndef _GSSAPI_GPM_H_
 #define _GSSAPI_GPM_H_
@@ -76,10 +53,12 @@ OM_uint32 gpm_delete_sec_context(OM_uint32 *minor_status,
                                  gss_buffer_t output_token);
 
 OM_uint32 gpm_acquire_cred(OM_uint32 *minor_status,
+                           gssx_cred *imp_cred_handle,
                            gssx_name *desired_name,
                            OM_uint32 time_req,
                            const gss_OID_set desired_mechs,
                            gss_cred_usage_t cred_usage,
+                           bool impersonate,
                            gssx_cred **output_cred_handle,
                            gss_OID_set *actual_mechs,
                            OM_uint32 *time_rec);
@@ -179,7 +158,8 @@ OM_uint32 gpm_init_sec_context(OM_uint32 *minor_status,
                                gss_OID *actual_mech_type,
                                gss_buffer_t output_token,
                                OM_uint32 *ret_flags,
-                               OM_uint32 *time_rec);
+                               OM_uint32 *time_rec,
+                               gssx_cred **out_cred_handle);
 OM_uint32 gpm_inquire_context(OM_uint32 *minor_status,
                               gssx_ctx *context_handle,
                               gssx_name **src_name,

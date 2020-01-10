@@ -9,6 +9,7 @@ m4_ifdef([AC_USE_SYSTEM_EXTENSIONS],
     [AC_USE_SYSTEM_EXTENSIONS],
     [AC_GNU_SOURCE])
 
+AC_PROG_CC_C99
 CFLAGS="$CFLAGS -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE"
 
 AC_CONFIG_SRCDIR([BUILD.txt])
@@ -49,7 +50,6 @@ AC_COMPILE_IFELSE(
     [AC_DEFINE([HAVE_PTHREAD], [1], [Pthread mutexes available.])],
     [AC_MSG_WARN([Pthread library not found! Clients will not be thread safe...])])
 
-#Include here cause WITH_INIT_DIR requires $osname set in platform.m4
 m4_include([external/platform.m4])
 
 m4_include(conf_macros.m4)
@@ -59,7 +59,6 @@ WITH_LOG_PATH
 WITH_PUBCONF_PATH
 WITH_SOCKET_NAME
 WITH_PID_FILE
-WITH_INIT_DIR
 WITH_TEST_DIR
 WITH_MANPAGES
 WITH_XML_CATALOG
@@ -67,6 +66,7 @@ WITH_SELINUX
 WITH_GSSIDEBUG
 WITH_GPSTATE_PATH
 WITH_GPP_DEFAULT_BEHAVIOR
+WITH_HARDENING
 
 m4_include([external/pkg.m4])
 m4_include([external/libpopt.m4])
@@ -82,16 +82,8 @@ if test x$have_libverto = x; then
     AC_MSG_ERROR([Could not find VERTO headers])
 fi
 
-#Check for iniparser
-have_iniparser=
-AC_CHECK_HEADERS([iniparser.h],
-    [AC_CHECK_LIB(iniparser, iniparser_set, [ have_iniparser=1 ],
-    [AC_MSG_ERROR([Iniparser library must support iniparser_set])])],
-    [AC_MSG_WARN([Could not find Iniparser headers])]
-)
-
 #Check for libini_config
-PKG_CHECK_MODULES([LIBINI_CONFIG], [ini_config >= 1.0.0], [have_libini_config=1], [have_libini_config=])
+PKG_CHECK_MODULES([LIBINI_CONFIG], [ini_config >= 1.2.0], [have_libini_config=1], [have_libini_config=])
 if test x$have_libini_config = x; then
     AC_MSG_WARN([Could not find LIBINI_CONFIG headers])
 else
@@ -100,17 +92,16 @@ else
     AC_CHECK_LIB(ini_config, ini_config_file_open, [],
                  [AC_MSG_WARN([ini_config library must support ini_config_file_open])],
                  [$INI_CONFIG_LIBS])
+    AC_CHECK_LIB(ini_config, ini_config_augment, [],
+                 [AC_MSG_WARN([ini_config library must support ini_config_augment])],
+                 [$INI_CONFIG_LIBS])
 fi
 
 if test x$have_libini_config = x1; then
-    AC_DEFINE([WITH_DINGLIBS], [1], [Using ini_config])
     INI_CFLAGS="$INI_CONFIG_CFLAGS"
     INI_LIBS="$INI_CONFIG_LIBS"
-elif test x$have_iniparser = x1; then
-    AC_DEFINE([WITH_INIPARSER], [1], [Using iniparser])
-    INI_LIBS="-liniparser"
 else
-    AC_MSG_ERROR([Neither iniparser nor ini_config development packages available])
+    AC_MSG_ERROR([ini_config development packages not available])
 fi
 
 AC_SUBST(INI_LIBS)

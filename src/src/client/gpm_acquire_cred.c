@@ -1,27 +1,4 @@
-/*
-   GSS-PROXY
-
-   Copyright (C) 2011 Red Hat, Inc.
-   Copyright (C) 2011 Simo Sorce <simo.sorce@redhat.com>
-
-   Permission is hereby granted, free of charge, to any person obtaining a
-   copy of this software and associated documentation files (the "Software"),
-   to deal in the Software without restriction, including without limitation
-   the rights to use, copy, modify, merge, publish, distribute, sublicense,
-   and/or sell copies of the Software, and to permit persons to whom the
-   Software is furnished to do so, subject to the following conditions:
-
-   The above copyright notice and this permission notice shall be included in
-   all copies or substantial portions of the Software.
-
-   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
-   THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-   DEALINGS IN THE SOFTWARE.
-*/
+/* Copyright (C) 2011 the GSS-PROXY contributors, see COPYING for license */
 
 #include "gssapi_gpm.h"
 
@@ -68,10 +45,12 @@ static int gpmint_cred_to_actual_mechs(gssx_cred *c, gss_OID_set *a)
 }
 
 OM_uint32 gpm_acquire_cred(OM_uint32 *minor_status,
+                           gssx_cred *in_cred_handle,
                            gssx_name *desired_name,
                            OM_uint32 time_req,
                            const gss_OID_set desired_mechs,
                            gss_cred_usage_t cred_usage,
+                           bool impersonate,
                            gssx_cred **output_cred_handle,
                            gss_OID_set *actual_mechs,
                            OM_uint32 *time_rec)
@@ -95,6 +74,7 @@ OM_uint32 gpm_acquire_cred(OM_uint32 *minor_status,
 
     /* ignore call_ctx for now */
 
+    arg->input_cred_handle = in_cred_handle;
     arg->desired_name = desired_name;
 
     if (desired_mechs) {
@@ -107,6 +87,20 @@ OM_uint32 gpm_acquire_cred(OM_uint32 *minor_status,
     }
     arg->time_req = time_req;
     arg->cred_usage = gp_conv_cred_usage_to_gssx(cred_usage);
+
+    /* impersonate calls use input cred and a special option */
+    if (impersonate) {
+        ret_min = gp_add_option(&arg->options.options_val,
+                                &arg->options.options_len,
+                                ACQUIRE_TYPE_OPTION,
+                                sizeof(ACQUIRE_TYPE_OPTION),
+                                ACQUIRE_IMPERSONATE_NAME,
+                                sizeof(ACQUIRE_IMPERSONATE_NAME));
+        if (ret_min) {
+            ret_maj = GSS_S_FAILURE;
+            goto done;
+        }
+    }
 
     /* execute proxy request */
     ret = gpm_make_call(GSSX_ACQUIRE_CRED, &uarg, &ures);
@@ -156,8 +150,9 @@ OM_uint32 gpm_acquire_cred(OM_uint32 *minor_status,
     ret_min = 0;
 
 done:
-    /* desired_name is passed in, don't let gpm_free_xdrs free it */
+    /* don't let gpm_free_xdrs free variables passed in */
     arg->desired_name = NULL;
+    arg->input_cred_handle = NULL;
     gpm_free_xdrs(GSSX_ACQUIRE_CRED, &uarg, &ures);
     *minor_status = ret_min;
     return ret_maj;

@@ -1,27 +1,4 @@
-/*
-   GSS-PROXY
-
-   Copyright (C) 2011 Red Hat, Inc.
-   Copyright (C) 2011 Simo Sorce <simo.sorce@redhat.com>
-
-   Permission is hereby granted, free of charge, to any person obtaining a
-   copy of this software and associated documentation files (the "Software"),
-   to deal in the Software without restriction, including without limitation
-   the rights to use, copy, modify, merge, publish, distribute, sublicense,
-   and/or sell copies of the Software, and to permit persons to whom the
-   Software is furnished to do so, subject to the following conditions:
-
-   The above copyright notice and this permission notice shall be included in
-   all copies or substantial portions of the Software.
-
-   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
-   THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-   DEALINGS IN THE SOFTWARE.
-*/
+/* Copyright (C) 2011,2015 the GSS-PROXY contributors, see COPYING for license */
 
 #include "config.h"
 #include <stdlib.h>
@@ -62,10 +39,40 @@ struct gp_buffer {
     size_t pos;
 };
 
-bool gp_conn_check_selinux(struct gp_conn *conn, SELINUX_CTX ctx)
+bool gp_selinux_ctx_equal(SELINUX_CTX ctx1, SELINUX_CTX ctx2)
 {
     const char *ra, *rb;
 
+    if (ctx1 == ctx2) {
+        return true;
+    }
+    if (ctx1 == NULL || ctx2 == NULL) {
+        return false;
+    }
+
+    if (strcmp(SELINUX_context_user_get(ctx1),
+               SELINUX_context_user_get(ctx2)) != 0) {
+        return false;
+    }
+    if (strcmp(SELINUX_context_role_get(ctx1),
+               SELINUX_context_role_get(ctx2)) != 0) {
+        return false;
+    }
+    if (strcmp(SELINUX_context_type_get(ctx1),
+               SELINUX_context_type_get(ctx2)) != 0) {
+        return false;
+    }
+    ra = SELINUX_context_range_get(ctx1);
+    rb = SELINUX_context_range_get(ctx2);
+    if (ra && rb && (strcmp(ra, rb) != 0)) {
+        return false;
+    }
+
+    return true;
+}
+
+bool gp_conn_check_selinux(struct gp_conn *conn, SELINUX_CTX ctx)
+{
     if (ctx == NULL) {
         return true;
     }
@@ -75,25 +82,7 @@ bool gp_conn_check_selinux(struct gp_conn *conn, SELINUX_CTX ctx)
         return false;
     }
 
-    if (strcmp(SELINUX_context_user_get(ctx),
-               SELINUX_context_user_get(conn->selinux_ctx)) != 0) {
-        return false;
-    }
-    if (strcmp(SELINUX_context_role_get(ctx),
-               SELINUX_context_role_get(conn->selinux_ctx)) != 0) {
-        return false;
-    }
-    if (strcmp(SELINUX_context_type_get(ctx),
-               SELINUX_context_type_get(conn->selinux_ctx)) != 0) {
-        return false;
-    }
-    ra = SELINUX_context_range_get(ctx);
-    rb = SELINUX_context_range_get(conn->selinux_ctx);
-    if (ra && rb && (strcmp(ra, rb) != 0)) {
-        return false;
-    }
-
-    return true;
+    return gp_selinux_ctx_equal(ctx, conn->selinux_ctx);
 }
 
 struct gp_creds *gp_conn_get_creds(struct gp_conn *conn)
@@ -155,6 +144,13 @@ static int set_fd_flags(int fd, int flags)
         return errno;
     }
     return 0;
+}
+
+void free_unix_socket(verto_ctx *ctx, verto_ev *ev)
+{
+    struct gp_sock_ctx *sock_ctx = NULL;
+    sock_ctx = verto_get_private(ev);
+    free(sock_ctx);
 }
 
 struct gp_sock_ctx *init_unix_socket(struct gssproxy_ctx *gpctx,

@@ -1,27 +1,4 @@
-/*
-   GSS-PROXY
-
-   Copyright (C) 2011 Red Hat, Inc.
-   Copyright (C) 2011 Simo Sorce <simo.sorce@redhat.com>
-
-   Permission is hereby granted, free of charge, to any person obtaining a
-   copy of this software and associated documentation files (the "Software"),
-   to deal in the Software without restriction, including without limitation
-   the rights to use, copy, modify, merge, publish, distribute, sublicense,
-   and/or sell copies of the Software, and to permit persons to whom the
-   Software is furnished to do so, subject to the following conditions:
-
-   The above copyright notice and this permission notice shall be included in
-   all copies or substantial portions of the Software.
-
-   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
-   THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-   DEALINGS IN THE SOFTWARE.
-*/
+/* Copyright (C) 2011 the GSS-PROXY contributors, see COPYING for license */
 
 #include "config.h"
 #include <stdlib.h>
@@ -42,77 +19,7 @@
 #include "src/gp_debug.h"
 #include "src/client/gssapi_gpm.h"
 #include "popt.h"
-
-#define DEBUG(...) do { \
-    char msg[4096]; \
-    snprintf(msg, 4096, __VA_ARGS__); \
-    fprintf(stderr, "%s:%d: %s", __FUNCTION__, __LINE__, msg); \
-    fflush(stderr); \
-} while(0);
-
-
-int gp_send_buffer(int fd, char *buf, uint32_t len)
-{
-    uint32_t size;
-    size_t wn;
-    size_t pos;
-
-    size = htonl(len);
-
-    wn = write(fd, &size, sizeof(uint32_t));
-    if (wn != 4) {
-        return EIO;
-    }
-
-    pos = 0;
-    while (len > pos) {
-        wn = write(fd, buf + pos, len - pos);
-        if (wn == -1) {
-            if (errno == EINTR) {
-                continue;
-            }
-            return errno;
-        }
-        pos += wn;
-    }
-
-    return 0;
-}
-
-int gp_recv_buffer(int fd, char *buf, uint32_t *len)
-{
-    uint32_t size;
-    size_t rn;
-    size_t pos;
-
-    rn = read(fd, &size, sizeof(uint32_t));
-    if (rn != 4) {
-        return EIO;
-    }
-
-    *len = ntohl(size);
-
-    if (*len > MAX_RPC_SIZE) {
-        return EINVAL;
-    }
-
-    pos = 0;
-    while (*len > pos) {
-        rn = read(fd, buf + pos, *len - pos);
-        if (rn == -1) {
-            if (errno == EINTR) {
-                continue;
-            }
-            return errno;
-        }
-        if (rn == 0) {
-            return EIO;
-        }
-        pos += rn;
-    }
-
-    return 0;
-}
+#include "t_utils.h"
 
 int gp_send_accept_sec_context(int fd,
                                gssx_arg_accept_sec_context *arg,
@@ -157,13 +64,13 @@ int gp_send_accept_sec_context(int fd,
     }
 
     /* send to proxy */
-    ret = gp_send_buffer(fd, buffer, xdr_getpos(&xdr_call_ctx));
+    ret = t_send_buffer(fd, buffer, xdr_getpos(&xdr_call_ctx));
     if (ret) {
         return EIO;
     }
 
     /* receive answer */
-    ret = gp_recv_buffer(fd, buffer, &length);
+    ret = t_recv_buffer(fd, buffer, &length);
     if (ret) {
         return EIO;
     }
@@ -194,6 +101,7 @@ int gp_send_accept_sec_context(int fd,
 }
 
 struct athread {
+    const char **argv;
     pthread_t tid;
     int *cli_pipe;
     int *srv_pipe;
@@ -204,6 +112,7 @@ struct athread {
 
 void *client_thread(void *pvt)
 {
+    const char **argv;
     struct athread *data;
     uint32_t ret_maj;
     uint32_t ret_min;
@@ -221,6 +130,7 @@ void *client_thread(void *pvt)
     uint32_t max_size;
 
     data = (struct athread *)pvt;
+    argv = data->argv;
 
     target_buf.value = (void *)data->target;
     target_buf.length = strlen(data->target) + 1;
@@ -244,6 +154,7 @@ void *client_thread(void *pvt)
                                        NULL,
                                        &out_token,
                                        NULL,
+                                       NULL,
                                        NULL);
         if (ret_maj != GSS_S_COMPLETE &&
             ret_maj != GSS_S_CONTINUE_NEEDED) {
@@ -252,7 +163,7 @@ void *client_thread(void *pvt)
         }
         if (out_token.length != 0) {
             /* send to server */
-            ret = gp_send_buffer(data->srv_pipe[1],
+            ret = t_send_buffer(data->srv_pipe[1],
                                  out_token.value, out_token.length);
             if (ret) {
                 goto done;
@@ -267,7 +178,7 @@ void *client_thread(void *pvt)
 
         if (ret_maj == GSS_S_CONTINUE_NEEDED) {
             /* and wait for reply */
-            ret = gp_recv_buffer(data->cli_pipe[0], buffer, &buflen);
+            ret = t_recv_buffer(data->cli_pipe[0], buffer, &buflen);
             if (ret) {
                 goto done;
             }
@@ -292,14 +203,14 @@ void *client_thread(void *pvt)
     }
 
     /* send msg to server */
-    ret = gp_send_buffer(data->srv_pipe[1],
+    ret = t_send_buffer(data->srv_pipe[1],
                          msg_buf.value, msg_buf.length);
     if (ret) {
         goto done;
     }
 
     /* send signature to server */
-    ret = gp_send_buffer(data->srv_pipe[1],
+    ret = t_send_buffer(data->srv_pipe[1],
                          out_token.value, out_token.length);
     if (ret) {
         goto done;
@@ -307,7 +218,7 @@ void *client_thread(void *pvt)
 
     gss_release_buffer(&ret_min, &out_token);
 
-    in_token.value = CLI_MSG;
+    in_token.value = discard_const(CLI_MSG);
     in_token.length = strlen(in_token.value) + 1;
 
     ret_maj = gpm_wrap(&ret_min,
@@ -324,7 +235,7 @@ void *client_thread(void *pvt)
     }
 
     /* send to server */
-    ret = gp_send_buffer(data->srv_pipe[1],
+    ret = t_send_buffer(data->srv_pipe[1],
                          out_token.value,
                          out_token.length);
     if (ret) {
@@ -355,6 +266,7 @@ done:
 
 void *server_thread(void *pvt)
 {
+    const char **argv;
     struct athread *data;
     char buffer[MAX_RPC_SIZE];
     uint32_t buflen;
@@ -391,6 +303,7 @@ void *server_thread(void *pvt)
     int conf_state;
 
     data = (struct athread *)pvt;
+    argv = data->argv;
 
     target_buf.value = (void *)data->target;
     target_buf.length = strlen(data->target) + 1;
@@ -404,7 +317,8 @@ void *server_thread(void *pvt)
         goto done;
     }
     ret_maj = gpm_canonicalize_name(&ret_min, target_name,
-                                    gss_mech_krb5, &canon_name);
+                                    discard_const(gss_mech_krb5),
+                                    &canon_name);
     if (ret_maj) {
         DEBUG("gssproxy returned an error: %d\n", ret_maj);
         gp_log_failure(GSS_C_NO_OID, ret_maj, ret_min);
@@ -480,10 +394,11 @@ void *server_thread(void *pvt)
     }
 
     ret_maj = gpm_acquire_cred(&ret_min,
-                               NULL,
+                               NULL, NULL,
                                GSS_C_INDEFINITE,
                                mech_set,
                                GSS_C_ACCEPT,
+                               false,
                                &cred_handle,
                                NULL,
                                NULL);
@@ -493,7 +408,7 @@ void *server_thread(void *pvt)
         goto done;
     }
 
-    ret = gp_recv_buffer(data->srv_pipe[0], buffer, &buflen);
+    ret = t_recv_buffer(data->srv_pipe[0], buffer, &buflen);
     if (ret) {
         DEBUG("Failed to get data from client!\n");
         goto done;
@@ -520,7 +435,7 @@ void *server_thread(void *pvt)
     }
 
     if (out_token.length) {
-        ret = gp_send_buffer(data->cli_pipe[1],
+        ret = t_send_buffer(data->cli_pipe[1],
                              out_token.value, out_token.length);
         if (ret) {
             DEBUG("Failed to send data to client!\n");
@@ -529,7 +444,7 @@ void *server_thread(void *pvt)
     }
 
     /* receive message from client */
-    ret = gp_recv_buffer(data->srv_pipe[0], buffer, &buflen);
+    ret = t_recv_buffer(data->srv_pipe[0], buffer, &buflen);
     if (ret) {
         DEBUG("Failed to get data from client!\n");
         goto done;
@@ -538,7 +453,7 @@ void *server_thread(void *pvt)
     in_token.length = buflen;
 
     /* receive signature from client */
-    ret = gp_recv_buffer(data->srv_pipe[0],
+    ret = t_recv_buffer(data->srv_pipe[0],
                          &buffer[in_token.length], &buflen);
     if (ret) {
         DEBUG("Failed to get data from client!\n");
@@ -557,7 +472,7 @@ void *server_thread(void *pvt)
 
     DEBUG("Received valid msg from client: [%s]\n", buffer);
 
-    ret = gp_recv_buffer(data->srv_pipe[0], buffer, &buflen);
+    ret = t_recv_buffer(data->srv_pipe[0], buffer, &buflen);
     if (ret) {
         DEBUG("Failed to get data from client!\n");
         goto done;
@@ -666,6 +581,7 @@ int main(int argc, const char *argv[])
     pthread_attr_init(&attr);
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
 
+    server.argv = argv;
     server.srv_pipe = srv_pipe;
     server.cli_pipe = cli_pipe;
     server.target = opt_target;
@@ -675,6 +591,7 @@ int main(int argc, const char *argv[])
         return -1;
     }
 
+    client.argv = argv;
     client.srv_pipe = srv_pipe;
     client.cli_pipe = cli_pipe;
     client.target = opt_target;

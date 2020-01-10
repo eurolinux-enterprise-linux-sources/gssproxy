@@ -1,27 +1,4 @@
-/*
-   GSS-PROXY
-
-   Copyright (C) 2012 Red Hat, Inc.
-   Copyright (C) 2012 Simo Sorce <simo.sorce@redhat.com>
-
-   Permission is hereby granted, free of charge, to any person obtaining a
-   copy of this software and associated documentation files (the "Software"),
-   to deal in the Software without restriction, including without limitation
-   the rights to use, copy, modify, merge, publish, distribute, sublicense,
-   and/or sell copies of the Software, and to permit persons to whom the
-   Software is furnished to do so, subject to the following conditions:
-
-   The above copyright notice and this permission notice shall be included in
-   all copies or substantial portions of the Software.
-
-   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
-   THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-   DEALINGS IN THE SOFTWARE.
-*/
+/* Copyright (C) 2012 the GSS-PROXY contributors, see COPYING for license */
 
 #include "gss_plugin.h"
 
@@ -85,6 +62,7 @@ OM_uint32 gssi_init_sec_context(OM_uint32 *minor_status,
     enum gpp_behavior behavior = GPP_UNINITIALIZED;
     struct gpp_context_handle *ctx_handle = NULL;
     struct gpp_cred_handle *cred_handle = NULL;
+    gssx_cred *out_cred = NULL;
     struct gpp_name_handle *name;
     OM_uint32 tmaj, tmin;
     OM_uint32 maj, min;
@@ -133,10 +111,8 @@ OM_uint32 gssi_init_sec_context(OM_uint32 *minor_status,
             goto done;
         }
     } else {
-        cred_handle =  calloc(1, sizeof(struct gpp_cred_handle));
-        if (!cred_handle) {
-            maj = GSS_S_FAILURE;
-            min = ENOMEM;
+        maj = gpp_cred_handle_init(&min, true, NULL, &cred_handle);
+        if (maj) {
             goto done;
         }
     }
@@ -166,12 +142,17 @@ OM_uint32 gssi_init_sec_context(OM_uint32 *minor_status,
 
     /* Then try with remote */
     if (behavior != GPP_LOCAL_ONLY) {
-
         if (name->local && !name->remote) {
             maj = gpp_local_to_name(&min, name->local, &name->remote);
             if (maj) {
                 goto done;
             }
+        }
+
+        if (!cred_handle->remote) {
+            /* we ignore failures here */
+            (void)gppint_get_def_creds(&min, GPP_REMOTE_ONLY, NULL,
+                                       GSS_C_INITIATE, &cred_handle);
         }
 
         maj = gpm_init_sec_context(&min,
@@ -186,17 +167,31 @@ OM_uint32 gssi_init_sec_context(OM_uint32 *minor_status,
                                    actual_mech_type,
                                    output_token,
                                    ret_flags,
-                                   time_rec);
-        if (maj == GSS_S_COMPLETE || maj == GSS_S_CONTINUE_NEEDED ||
-            behavior == GPP_REMOTE_ONLY) {
+                                   time_rec,
+                                   &out_cred);
+        if (maj == GSS_S_COMPLETE || maj == GSS_S_CONTINUE_NEEDED) {
+            if (out_cred) {
+                xdr_free((xdrproc_t)xdr_gssx_cred,
+                         (char *)cred_handle->remote);
+                free(cred_handle->remote);
+                cred_handle->remote = out_cred;
+                out_cred = NULL;
+                /* failuire is not fatal */
+                (void)gpp_store_remote_creds(&tmin,
+                                             cred_handle->default_creds,
+                                             &cred_handle->store,
+                                             cred_handle->remote);
+            }
             goto done;
         }
 
-        /* So remote failed, but we can fallback to local, try that */
-        maj = init_ctx_local(&min, cred_handle, ctx_handle, name,
-                             mech_type, req_flags, time_req, input_cb,
-                             input_token, actual_mech_type, output_token,
-                             ret_flags, time_rec);
+        if (behavior == GPP_REMOTE_FIRST) {
+            /* So remote failed, but we can fallback to local, try that */
+            maj = init_ctx_local(&min, cred_handle, ctx_handle, name,
+                                 mech_type, req_flags, time_req, input_cb,
+                                 input_token, actual_mech_type, output_token,
+                                 ret_flags, time_rec);
+        }
     }
 
 done:

@@ -1,27 +1,4 @@
-/*
-   GSS-PROXY
-
-   Copyright (C) 2011 Red Hat, Inc.
-   Copyright (C) 2011 Simo Sorce <simo.sorce@redhat.com>
-
-   Permission is hereby granted, free of charge, to any person obtaining a
-   copy of this software and associated documentation files (the "Software"),
-   to deal in the Software without restriction, including without limitation
-   the rights to use, copy, modify, merge, publish, distribute, sublicense,
-   and/or sell copies of the Software, and to permit persons to whom the
-   Software is furnished to do so, subject to the following conditions:
-
-   The above copyright notice and this permission notice shall be included in
-   all copies or substantial portions of the Software.
-
-   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
-   THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-   DEALINGS IN THE SOFTWARE.
-*/
+/* Copyright (C) 2011 the GSS-PROXY contributors, see COPYING for license */
 
 #ifndef _GP_COMMON_H_
 #define _GP_COMMON_H_
@@ -111,5 +88,42 @@ union gp_rpc_res {
     gssx_res_unwrap unwrap;
     gssx_res_wrap_size_limit wrap_size_limit;
 };
+
+#define gpopt_string_match(buf, val, len) \
+    (len == (buf)->octet_string_len && \
+     strncmp((val), (buf)->octet_string_val, \
+                    (buf)->octet_string_len) == 0)
+
+#define gp_option_name_match(opt, val, len) \
+    gpopt_string_match(&((opt)->option), val, len)
+
+#define gp_option_value_match(opt, val, len) \
+    gpopt_string_match(&((opt)->value), val, len)
+
+#define gp_options_find(res, opts, name, len) \
+do { \
+    struct gssx_option *_v; \
+    int _o; \
+    res = NULL; \
+    for (_o = 0; _o < opts.options_len; _o++) { \
+        _v = &opts.options_val[_o]; \
+        if (gp_option_name_match(_v, name, len)) { \
+            res = _v; \
+            break; \
+        } \
+    } \
+} while(0)
+
+#define ACQUIRE_TYPE_OPTION         "acquire_type"
+#define ACQUIRE_IMPERSONATE_NAME    "impersonate_name"
+#define CRED_SYNC_OPTION "sync_modified_creds"
+#define CRED_SYNC_DEFAULT "default"
+#define CRED_SYNC_PAYLOAD "sync_creds"
+
+#define GPKRB_MAX_CRED_SIZE 1024 * 512
+
+uint32_t gp_add_option(gssx_option **options_val, u_int *options_len,
+                       const void *option, size_t option_len,
+                       const void *value, size_t value_len);
 
 #endif /* _GP_COMMON_H_ */

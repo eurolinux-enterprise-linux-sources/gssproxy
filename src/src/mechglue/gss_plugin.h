@@ -1,27 +1,4 @@
-/*
-   GSS-PROXY
-
-   Copyright (C) 2012 Red Hat, Inc.
-   Copyright (C) 2012 Simo Sorce <simo.sorce@redhat.com>
-
-   Permission is hereby granted, free of charge, to any person obtaining a
-   copy of this software and associated documentation files (the "Software"),
-   to deal in the Software without restriction, including without limitation
-   the rights to use, copy, modify, merge, publish, distribute, sublicense,
-   and/or sell copies of the Software, and to permit persons to whom the
-   Software is furnished to do so, subject to the following conditions:
-
-   The above copyright notice and this permission notice shall be included in
-   all copies or substantial portions of the Software.
-
-   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
-   THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-   DEALINGS IN THE SOFTWARE.
-*/
+/* Copyright (C) 2012 the GSS-PROXY contributors, see COPYING for license */
 
 #ifndef _GSS_PLUGIN_H_
 #define _GSS_PLUGIN_H_
@@ -30,8 +7,11 @@
 
 struct gpp_cred_handle {
     gssx_cred *remote;
+    gss_key_value_set_desc store;
+    bool default_creds;
     gss_cred_id_t local;
 };
+
 
 struct gpp_context_handle {
     gssx_ctx *remote;
@@ -92,6 +72,14 @@ uint32_t gpp_name_to_local(uint32_t *minor, gssx_name *name,
                            gss_OID mech_type, gss_name_t *mech_name);
 uint32_t gpp_local_to_name(uint32_t *minor,
                            gss_name_t local_name, gssx_name **name);
+uint32_t gpp_cred_handle_init(uint32_t *min, bool defcred, const char *ccache,
+                              struct gpp_cred_handle **out_handle);
+uint32_t gpp_cred_handle_free(uint32_t *min, struct gpp_cred_handle *handle);
+bool gpp_creds_are_equal(gssx_cred *a, gssx_cred *b);
+uint32_t gpp_store_remote_creds(uint32_t *min, bool default_creds,
+                                gss_const_key_value_set_t cred_store,
+                                gssx_cred *creds);
+
 OM_uint32 gssi_internal_release_oid(OM_uint32 *minor_status, gss_OID *oid);
 
 OM_uint32 gssi_acquire_cred(OM_uint32 *minor_status,
@@ -102,6 +90,16 @@ OM_uint32 gssi_acquire_cred(OM_uint32 *minor_status,
                             gss_cred_id_t *output_cred_handle,
                             gss_OID_set *actual_mechs,
                             OM_uint32 *time_rec);
+
+OM_uint32 gssi_acquire_cred_from(OM_uint32 *minor_status,
+                                 const gss_name_t desired_name,
+                                 OM_uint32 time_req,
+                                 const gss_OID_set desired_mechs,
+                                 gss_cred_usage_t cred_usage,
+                                 gss_const_key_value_set_t cred_store,
+                                 gss_cred_id_t *output_cred_handle,
+                                 gss_OID_set *actual_mechs,
+                                 OM_uint32 *time_rec);
 
 OM_uint32 gssi_add_cred(OM_uint32 *minor_status,
                         const gss_cred_id_t input_cred_handle,
@@ -115,6 +113,19 @@ OM_uint32 gssi_add_cred(OM_uint32 *minor_status,
                         OM_uint32 *initiator_time_rec,
                         OM_uint32 *acceptor_time_rec);
 
+OM_uint32 gssi_add_cred_from(OM_uint32 *minor_status,
+                             const gss_cred_id_t input_cred_handle,
+                             const gss_name_t desired_name,
+                             const gss_OID desired_mech,
+                             gss_cred_usage_t cred_usage,
+                             OM_uint32 initiator_time_req,
+                             OM_uint32 acceptor_time_req,
+                             gss_const_key_value_set_t cred_store,
+                             gss_cred_id_t *output_cred_handle,
+                             gss_OID_set *actual_mechs,
+                             OM_uint32 *initiator_time_rec,
+                             OM_uint32 *acceptor_time_rec);
+
 OM_uint32 gssi_acquire_cred_with_password(OM_uint32 *minor_status,
                                           const gss_name_t desired_name,
                                           const gss_buffer_t password,
@@ -124,6 +135,19 @@ OM_uint32 gssi_acquire_cred_with_password(OM_uint32 *minor_status,
                                           gss_cred_id_t *output_cred_handle,
                                           gss_OID_set *actual_mechs,
                                           OM_uint32 *time_rec);
+
+OM_uint32 gssi_acquire_cred_impersonate_name(OM_uint32 *minor_status,
+                                             gss_cred_id_t *imp_cred_handle,
+                                             const gss_name_t desired_name,
+                                             OM_uint32 time_req,
+                                             const gss_OID_set desired_mechs,
+                                             gss_cred_usage_t cred_usage,
+                                             gss_cred_id_t *output_cred_handle,
+                                             gss_OID_set *actual_mechs,
+                                             OM_uint32 *time_rec);
+
+OM_uint32 gppint_retrieve_remote_creds(uint32_t *min, const char *ccache_name,
+                                       gssx_name *name, gssx_cred *creds);
 
 OM_uint32 gppint_get_def_creds(OM_uint32 *minor_status,
                                enum gpp_behavior behavior,
@@ -164,6 +188,16 @@ OM_uint32 gssi_store_cred(OM_uint32 *minor_status,
                           OM_uint32 default_cred,
                           gss_OID_set *elements_stored,
                           gss_cred_usage_t *cred_usage_stored);
+
+OM_uint32 gssi_store_cred_into(OM_uint32 *minor_status,
+                               const gss_cred_id_t input_cred_handle,
+                               gss_cred_usage_t input_usage,
+                               const gss_OID desired_mech,
+                               OM_uint32 overwrite_cred,
+                               OM_uint32 default_cred,
+                               gss_const_key_value_set_t cred_store,
+                               gss_OID_set *elements_stored,
+                               gss_cred_usage_t *cred_usage_stored);
 
 OM_uint32 gssi_release_cred(OM_uint32 *minor_status,
                             gss_cred_id_t *cred_handle);

@@ -1,27 +1,4 @@
-/*
-   GSS-PROXY
-
-   Copyright (C) 2011 Red Hat, Inc.
-   Copyright (C) 2011 Simo Sorce <simo.sorce@redhat.com>
-
-   Permission is hereby granted, free of charge, to any person obtaining a
-   copy of this software and associated documentation files (the "Software"),
-   to deal in the Software without restriction, including without limitation
-   the rights to use, copy, modify, merge, publish, distribute, sublicense,
-   and/or sell copies of the Software, and to permit persons to whom the
-   Software is furnished to do so, subject to the following conditions:
-
-   The above copyright notice and this permission notice shall be included in
-   all copies or substantial portions of the Software.
-
-   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
-   THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-   DEALINGS IN THE SOFTWARE.
-*/
+/* Copyright (C) 2011 the GSS-PROXY contributors, see COPYING for license */
 
 #ifndef _GP_PROXY_H_
 #define _GP_PROXY_H_
@@ -29,28 +6,33 @@
 #include <libintl.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <gssapi/gssapi_ext.h>
 #include "verto.h"
 #include "gp_common.h"
 #include "gp_selinux.h"
 
 #define _(STRING) gettext(STRING)
+#define discard_const(ptr) ((void *)((uintptr_t)(ptr)))
 
 #define LINUX_PROC_USE_GSS_PROXY_FILE "/proc/net/rpc/use-gss-proxy"
 
 #define GP_CRED_KRB5    0x01
 
+struct gp_creds_handle;
+
 struct gp_cred_krb5 {
     char *principal;
-    const char **cred_store;
-    int cred_count;
+    gss_key_value_set_desc store;
+    struct gp_creds_handle *creds_handle;
 };
-
-struct gp_creds_handle;
 
 struct gp_service {
     char *name;
     uid_t euid;
     bool any_uid;
+    bool allow_proto_trans;
+    bool allow_const_deleg;
+    bool allow_cc_sync;
     bool trusted;
     bool kernel_nfsd;
     bool impersonate;
@@ -63,11 +45,12 @@ struct gp_service {
     uint32_t mechs;
     struct gp_cred_krb5 krb5;
 
-    struct gp_creds_handle *creds_handle;
+    verto_ev *ev;
 };
 
 struct gp_config {
     char *config_file;      /* gssproxy configuration file */
+    char *config_dir;       /* gssproxy configuration directory */
     bool daemonize;         /* let gssproxy daemonize */
     char *socket_name;      /* the socket name to use for */
     int num_workers;        /* number of worker threads */
@@ -84,6 +67,7 @@ struct gssproxy_ctx {
     struct gp_config *config;
     struct gp_workers *workers;
     verto_ctx *vctx;
+    verto_ev *sock_ev;      /* default socket event */
 };
 
 struct gp_sock_ctx {
@@ -98,13 +82,16 @@ struct gp_call_ctx {
     struct gssproxy_ctx *gpctx;
     struct gp_service *service;
     struct gp_conn *connection;
+    void (*destroy_callback)(void *);
+    void *destroy_callback_data;
 };
 
 /* from gp_config.c */
-struct gp_config *read_config(char *config_file, char *socket_name,
-                              int opt_daemonize);
+struct gp_config *read_config(char *config_file, char *config_dir,
+                              char *socket_name, int opt_daemonize);
 struct gp_creds_handle *gp_service_get_creds_handle(struct gp_service *svc);
 void free_config(struct gp_config **config);
+void free_cred_store_elements(gss_key_value_set_desc *cs);
 
 /* from gp_init.c */
 void init_server(bool daemonize, int *wait_fd);
@@ -116,6 +103,7 @@ void write_pid(void);
 int drop_privs(struct gp_config *cfg);
 
 /* from gp_socket.c */
+void free_unix_socket(verto_ctx *ctx, verto_ev *ev);
 struct gp_sock_ctx *init_unix_socket(struct gssproxy_ctx *gpctx,
                                      const char *file_name);
 void accept_sock_conn(verto_ctx *vctx, verto_ev *ev);
@@ -125,6 +113,7 @@ void gp_socket_send_data(verto_ctx *vctx, struct gp_conn *conn,
 struct gp_creds *gp_conn_get_creds(struct gp_conn *conn);
 uid_t gp_conn_get_uid(struct gp_conn *conn);
 const char *gp_conn_get_socket(struct gp_conn *conn);
+bool gp_selinux_ctx_equal(SELINUX_CTX ctx1, SELINUX_CTX ctx2);
 bool gp_conn_check_selinux(struct gp_conn *conn, SELINUX_CTX ctx);
 
 /* from gp_workers.c */
@@ -143,7 +132,9 @@ struct gp_service *gp_creds_match_conn(struct gssproxy_ctx *gpctx,
                                        struct gp_conn *conn);
 
 /* from gp_export.c */
-uint32_t gp_init_creds_handle(uint32_t *min, struct gp_creds_handle **out);
+uint32_t gp_init_creds_handle(uint32_t *min, const char *svc_name,
+                              const char *keytab,
+                              struct gp_creds_handle **out);
 void gp_free_creds_handle(struct gp_creds_handle **in);
 
 #endif /* _GP_PROXY_H_ */

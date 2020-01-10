@@ -1,4 +1,4 @@
-From 938bd1adc15342e8ebed3d4e135d862e362a619e Mon Sep 17 00:00:00 2001
+From b52f4f84531ee065f9553b9ecc5be53c89103800 Mon Sep 17 00:00:00 2001
 From: Robbie Harwood <rharwood@redhat.com>
 Date: Thu, 25 May 2017 13:06:17 -0400
 Subject: [PATCH] Make proc file failure loud but nonfatal

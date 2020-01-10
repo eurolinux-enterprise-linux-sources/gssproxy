@@ -1,0 +1,283 @@
+/* config.h.in.  Generated from configure.ac by autoheader.  */
+
+/* Absolute path to the build directory */
+#undef ABS_BUILD_DIR
+
+/* Where to store ccache files for gssproxy */
+#undef CCACHE_PATH
+
+/* Distro version number */
+#undef DISTRO_VERSION
+
+/* Define to 1 if translation of program messages to the user's native
+   language is requested. */
+#undef ENABLE_NLS
+
+/* Default gssproxy interposer plugin behavior */
+#undef GPP_DEFAULT_BEHAVIOR
+
+/* Where to store ccache files for gssproxy */
+#undef GPSTATE_PATH
+
+/* The name of the GSS Proxy pid file */
+#undef GP_PID_FILE
+
+/* The name of the GSS Proxy socket file */
+#undef GP_SOCKET_NAME
+
+/* Build with interposer debugging support */
+#undef GSSI_DEBUGGING
+
+/* Define if the GNU dcgettext() function is already present or preinstalled.
+   */
+#undef HAVE_DCGETTEXT
+
+/* Define to 1 if you have the <dlfcn.h> header file. */
+#undef HAVE_DLFCN_H
+
+/* Define to 1 if the system has the type `errno_t'. */
+#undef HAVE_ERRNO_T
+
+/* Define if the GNU gettext() function is already present or preinstalled. */
+#undef HAVE_GETTEXT
+
+/* Define to 1 if you have the <gssapi/gssapi.h> header file. */
+#undef HAVE_GSSAPI_GSSAPI_H
+
+/* Define to 1 if you have the <gssrpc/rpc.h> header file. */
+#undef HAVE_GSSRPC_RPC_H
+
+/* Define if you have the iconv() function. */
+#undef HAVE_ICONV
+
+/* Define to 1 if you have the <iniparser.h> header file. */
+#undef HAVE_INIPARSER_H
+
+/* Define to 1 if you have the <inttypes.h> header file. */
+#undef HAVE_INTTYPES_H
+
+/* Define to 1 if you have the <keyutils.h> header file. */
+#undef HAVE_KEYUTILS_H
+
+/* Define to 1 if you have the `gssapi_krb5' library (-lgssapi_krb5). */
+#undef HAVE_LIBGSSAPI_KRB5
+
+/* Define to 1 if you have the `gssrpc' library (-lgssrpc). */
+#undef HAVE_LIBGSSRPC
+
+/* Define to 1 if you have the `ini_config' library (-lini_config). */
+#undef HAVE_LIBINI_CONFIG
+
+/* Define to 1 if the system has the type `long long'. */
+#undef HAVE_LONG_LONG
+
+/* Define to 1 if you have the <memory.h> header file. */
+#undef HAVE_MEMORY_H
+
+/* Define to 1 if you have the <popt.h> header file. */
+#undef HAVE_POPT_H
+
+/* Define if you have POSIX threads libraries and header files. */
+#undef HAVE_PTHREAD
+
+/* Have PTHREAD_PRIO_INHERIT. */
+#undef HAVE_PTHREAD_PRIO_INHERIT
+
+/* Define to 1 if you have the `secure_getenv' function. */
+#undef HAVE_SECURE_GETENV
+
+/* Build with SELinux support */
+#undef HAVE_SELINUX
+
+/* Define to 1 if you have the <selinux/selinux.h> header file. */
+#undef HAVE_SELINUX_SELINUX_H
+
+/* Define to 1 if you have the <stdint.h> header file. */
+#undef HAVE_STDINT_H
+
+/* Define to 1 if you have the <stdlib.h> header file. */
+#undef HAVE_STDLIB_H
+
+/* Define to 1 if you have the <strings.h> header file. */
+#undef HAVE_STRINGS_H
+
+/* Define to 1 if you have the <string.h> header file. */
+#undef HAVE_STRING_H
+
+/* Define to 1 if `gid' is a member of `struct ucred'. */
+#undef HAVE_STRUCT_UCRED_GID
+
+/* Define to 1 if `pid' is a member of `struct ucred'. */
+#undef HAVE_STRUCT_UCRED_PID
+
+/* Define to 1 if `uid' is a member of `struct ucred'. */
+#undef HAVE_STRUCT_UCRED_UID
+
+/* Define to 1 if you have the <sys/stat.h> header file. */
+#undef HAVE_SYS_STAT_H
+
+/* Define to 1 if you have the <sys/types.h> header file. */
+#undef HAVE_SYS_TYPES_H
+
+/* Define if struct ucred is available */
+#undef HAVE_UCRED
+
+/* Define to 1 if you have the <unistd.h> header file. */
+#undef HAVE_UNISTD_H
+
+/* Define to 1 if you have the `__secure_getenv' function. */
+#undef HAVE___SECURE_GETENV
+
+/* Where to store log files for gssproxy */
+#undef LOG_PATH
+
+/* Define to the sub-directory in which libtool stores uninstalled libraries.
+   */
+#undef LT_OBJDIR
+
+/* Name of package */
+#undef PACKAGE
+
+/* Define to the address where bug reports for this package should be sent. */
+#undef PACKAGE_BUGREPORT
+
+/* Define to the full name of this package. */
+#undef PACKAGE_NAME
+
+/* Define to the full name and version of this package. */
+#undef PACKAGE_STRING
+
+/* Define to the one symbol short name of this package. */
+#undef PACKAGE_TARNAME
+
+/* Define to the home page for this package. */
+#undef PACKAGE_URL
+
+/* Define to the version of this package. */
+#undef PACKAGE_VERSION
+
+/* Prerelease version number of package */
+#undef PRERELEASE_VERSION
+
+/* Define to necessary symbol if this constant uses a non-standard name on
+   your system. */
+#undef PTHREAD_CREATE_JOINABLE
+
+/* Where to store pubconf files for gssproxy */
+#undef PUBCONF_PATH
+
+/* The size of `char', as computed by sizeof. */
+#undef SIZEOF_CHAR
+
+/* The size of `int', as computed by sizeof. */
+#undef SIZEOF_INT
+
+/* The size of `long', as computed by sizeof. */
+#undef SIZEOF_LONG
+
+/* The size of `long long', as computed by sizeof. */
+#undef SIZEOF_LONG_LONG
+
+/* The size of `off_t', as computed by sizeof. */
+#undef SIZEOF_OFF_T
+
+/* The size of `short', as computed by sizeof. */
+#undef SIZEOF_SHORT
+
+/* The size of `size_t', as computed by sizeof. */
+#undef SIZEOF_SIZE_T
+
+/* The size of `ssize_t', as computed by sizeof. */
+#undef SIZEOF_SSIZE_T
+
+/* Define to 1 if you have the ANSI C header files. */
+#undef STDC_HEADERS
+
+/* Directory used for 'make check' temporary files */
+#undef TEST_DIR
+
+/* Define if the keyring should be used */
+#undef USE_KEYRING
+
+/* Enable extensions on AIX 3, Interix.  */
+#ifndef _ALL_SOURCE
+# undef _ALL_SOURCE
+#endif
+/* Enable GNU extensions on systems that have them.  */
+#ifndef _GNU_SOURCE
+# undef _GNU_SOURCE
+#endif
+/* Enable threading extensions on Solaris.  */
+#ifndef _POSIX_PTHREAD_SEMANTICS
+# undef _POSIX_PTHREAD_SEMANTICS
+#endif
+/* Enable extensions on HP NonStop.  */
+#ifndef _TANDEM_SOURCE
+# undef _TANDEM_SOURCE
+#endif
+/* Enable general extensions on Solaris.  */
+#ifndef __EXTENSIONS__
+# undef __EXTENSIONS__
+#endif
+
+
+/* Version number of package */
+#undef VERSION
+
+/* Using ini_config */
+#undef WITH_DINGLIBS
+
+/* Using iniparser */
+#undef WITH_INIPARSER
+
+/* Define to 1 if on MINIX. */
+#undef _MINIX
+
+/* Define to 2 if the system does not provide POSIX.1 features except with
+   this defined. */
+#undef _POSIX_1_SOURCE
+
+/* Define to 1 if you need to in order for `stat' and other things to work. */
+#undef _POSIX_SOURCE
+
+/* Define to `short' if <sys/types.h> does not define. */
+#undef int16_t
+
+/* Define to `long' if <sys/types.h> does not define. */
+#undef int32_t
+
+/* Define to `long long' if <sys/types.h> does not define. */
+#undef int64_t
+
+/* Define to `char' if <sys/types.h> does not define. */
+#undef int8_t
+
+/* Define to `long long' if <sys/types.h> does not define. */
+#undef intptr_t
+
+/* Define to `unsigned long long' if <sys/types.h> does not define. */
+#undef ptrdiff_t
+
+/* Define to `unsigned int' if <sys/types.h> does not define. */
+#undef size_t
+
+/* Define to `int' if <sys/types.h> does not define. */
+#undef ssize_t
+
+/* Define to `unsigned short' if <sys/types.h> does not define. */
+#undef uint16_t
+
+/* Define to `unsigned long' if <sys/types.h> does not define. */
+#undef uint32_t
+
+/* Define to `unsigned long long' if <sys/types.h> does not define. */
+#undef uint64_t
+
+/* Define to `unsigned char' if <sys/types.h> does not define. */
+#undef uint8_t
+
+/* Define to `unsigned int' if <sys/types.h> does not define. */
+#undef uint_t
+
+/* Define to `unsigned long long' if <sys/types.h> does not define. */
+#undef uintptr_t

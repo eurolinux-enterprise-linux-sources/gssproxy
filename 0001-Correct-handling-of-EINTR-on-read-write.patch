@@ -1,0 +1,41 @@
+From df58bccfa5bfb42d7162f537c506a658729d4175 Mon Sep 17 00:00:00 2001
+From: Robbie Harwood <rharwood@redhat.com>
+Date: Mon, 28 Sep 2015 19:59:59 -0400
+Subject: [PATCH] Correct handling of EINTR on read()/write()
+
+The common send/recv functions where zeroing the ret variable only
+once causing a loop if EINTR as actually ever set.
+
+Signed-off-by: Robbie Harwood <rharwood@redhat.com>
+Signed-off-by: Simo Sorce <simo@redhat.com>
+---
+ proxy/src/client/gpm_common.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/proxy/src/client/gpm_common.c b/proxy/src/client/gpm_common.c
+index f0d5e1104aa5f7198a382e2533c1347045bb9d95..6d626e8bc41e2f0e3294d2ebaf563155d18a528f 100644
+--- a/proxy/src/client/gpm_common.c
++++ b/proxy/src/client/gpm_common.c
+@@ -160,8 +160,8 @@ static int gpm_send_buffer(struct gpm_ctx *gpmctx,
+ 
+     retry = false;
+     do {
+-        ret = 0;
+         do {
++            ret = 0;
+             wn = send(gpmctx->fd, &size, sizeof(uint32_t), MSG_NOSIGNAL);
+             if (wn == -1) {
+                 ret = errno;
+@@ -216,8 +216,8 @@ static int gpm_recv_buffer(struct gpm_ctx *gpmctx,
+     size_t pos;
+     int ret;
+ 
+-    ret = 0;
+     do {
++        ret = 0;
+         rn = read(gpmctx->fd, &size, sizeof(uint32_t));
+         if (rn == -1) {
+             ret = errno;
+-- 
+2.4.3
+
